@@ -1,21 +1,33 @@
-from pydantic import BaseModel, EmailStr, Field
+from enum import Enum
 from typing import Optional
+from pydantic import BaseModel, EmailStr
+
+class UserRole(str, Enum):
+    ADMIN = "administrador"
+    ASESOR = "asesor"
+    CLIENTE = "cliente"
+
 
 class UserBase(BaseModel):
-    email: EmailStr = Field(..., description="Correo electrónico institucional o personal")
+    email: EmailStr
+    first_name: str
+    last_name: str
+    
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=8, description="Contraseña de acceso (mínimo 8 caracteres)")
+    password: str
+    role: UserRole = UserRole.ASESOR
 
-class UserResponse(BaseModel):
+
+class UserResponse(UserBase):
     id: int
-    email: EmailStr
-    is_active: bool = True
+    role: UserRole
+    is_active: bool
 
     class Config:
         from_attributes = True
 
-# Esquemas para el Token JWT
+
 class Token(BaseModel):
     access_token: str
     token_type: str
