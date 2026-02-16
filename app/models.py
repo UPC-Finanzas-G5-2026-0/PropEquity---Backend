@@ -7,8 +7,12 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
+    
+    first_name = Column(String)
+    last_name = Column(String)
+    
     role = Column(String, default="asesor")
-    is_active = Column(Boolean, default=True) # <--- Ahora sí funcionará
+    is_active = Column(Boolean, default=True)
 
 class Client(Base):
     __tablename__ = "clients"

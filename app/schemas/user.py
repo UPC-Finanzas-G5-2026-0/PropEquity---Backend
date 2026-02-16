@@ -1,16 +1,18 @@
-from typing import Optional  # <--- ¡Faltaba esto!
+from typing import Optional  
 from pydantic import BaseModel, EmailStr
 
-# Esquema base compartido
+
 class UserBase(BaseModel):
     email: EmailStr
+    first_name: str
+    last_name: str
+    
 
-# Para recibir datos al crear usuario (Sign Up)
 class UserCreate(UserBase):
     password: str
     role: str = "asesor"
 
-# Para responder datos al cliente (sin password)
+
 class UserResponse(UserBase):
     id: int
     role: str
@@ -19,7 +21,7 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
-# --- Esquemas para Tokens (JWT) ---
+
 class Token(BaseModel):
     access_token: str
     token_type: str
