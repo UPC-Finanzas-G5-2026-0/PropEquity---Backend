@@ -1,33 +1,38 @@
-from fastapi import APIRouter, HTTPException
-from ...schemas.simulation import SimulationInput, SimulationResult
-from ...schemas.amortization import FrenchScheduleInput, FrenchScheduleResult
-from ...services.finance import get_monthly_schedule
-from ...services.amortization import generate_french_schedule
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 
+# 1. Importaciones Absolutas (Para evitar errores)
+from app.database import get_db
+from app.models import User
+from app.core.security import get_current_user
+from app.schemas.simulation import SimulationInput, SimulationResult
+
+# Asumimos que la lógica de negocio está en 'services.finance'
+from app.services.finance import get_monthly_schedule
 
 router = APIRouter()
 
-
 @router.post("/calculate", response_model=SimulationResult)
-def calculate_loan(payload: SimulationInput):
+def calculate_loan(
+    payload: SimulationInput, 
+    current_user: User = Depends(get_current_user), # 2. Ruta Protegida con JWT
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint principal para el Simulador.
+    Recibe la configuración compleja (Tasas, Seguros, Gracia) y devuelve el cronograma + KPIs.
+    """
     try:
-        return get_monthly_schedule(payload)
+        # Aquí llamamos al servicio que orquesta la matemática
+        result = get_monthly_schedule(payload)
+        return result
+    except ValueError as ve:
+        # Errores de validación de negocio (ej: Tasa negativa)
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Errores inesperados del servidor
+        print(f"Error en simulación: {e}") # Log para ti en consola
+        raise HTTPException(status_code=500, detail="Error interno al procesar la simulación")
 
-
-@router.post("/french-schedule", response_model=FrenchScheduleResult)
-def calculate_french_schedule(payload: FrenchScheduleInput):
-    try:
-        cronograma = generate_french_schedule(
-            principal=payload.principal,
-            rate=payload.rate,
-            rate_type=payload.rate_type,
-            n_periods=payload.n_periods,
-            payment_period=payload.payment_period,
-            capitalization=payload.capitalization,
-            rate_period=payload.rate_period,
-        )
-        return {"cronograma": cronograma}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# Nota: El endpoint '/french-schedule' que tenías puede quedar como 
+# una herramienta de prueba interna, pero el frontend debería usar '/calculate'.

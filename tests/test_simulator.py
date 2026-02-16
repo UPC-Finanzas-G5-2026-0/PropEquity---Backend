@@ -17,10 +17,10 @@ def test_simulation_no_grace():
     assert response.status_code == 200
     data = response.json()
     
-    # Verificaciones básicas
+ 
     assert len(data["cronograma"]) == 60
-    assert data["cronograma"][-1]["saldo"] == 0.0  # El crédito debe terminar en 0
-    assert data["van"] > 0  # El VAN debe ser positivo para el prestamista
+    assert data["cronograma"][-1]["saldo"] == 0.0 
+    assert data["van"] > 0  
 
 def test_simulation_total_grace():
     """Prueba 2: Crédito con 3 meses de Gracia Total (Capitalización)"""
@@ -36,8 +36,8 @@ def test_simulation_total_grace():
     assert response.status_code == 200
     data = response.json()
     
-    # En gracia total, las primeras cuotas deben ser 0
+ 
     for i in range(3):
         assert data["cronograma"][i]["cuota"] == 0.0
-        # El saldo debe aumentar en los primeros meses por la capitalización de intereses
+  
         assert data["cronograma"][i]["saldo"] > 270000.0

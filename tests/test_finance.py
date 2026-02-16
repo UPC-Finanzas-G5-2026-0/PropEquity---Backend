@@ -11,6 +11,6 @@ def test_calculo_frances_basico():
         meses_gracia=0
     )
     resultado = get_monthly_schedule(data)
-    # El saldo final del último mes debe ser 0
+
     assert resultado["cronograma"][-1]["saldo"] == 0
     print("Prueba de amortización exitosa")

@@ -2,8 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 
-# --- CORRECCIÓN AQUÍ ---
-# Importamos ambos desde api.v1 porque ahí es donde WatchFiles detectó tus archivos
 from .api.v1 import simulator 
 from .api.v1 import auth      
 
