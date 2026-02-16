@@ -1,21 +1,25 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional  # <--- ¡Faltaba esto!
+from pydantic import BaseModel, EmailStr
 
+# Esquema base compartido
 class UserBase(BaseModel):
-    email: EmailStr = Field(..., description="Correo electrónico institucional o personal")
-
-class UserCreate(UserBase):
-    password: str = Field(..., min_length=8, description="Contraseña de acceso (mínimo 8 caracteres)")
-
-class UserResponse(BaseModel):
-    id: int
     email: EmailStr
-    is_active: bool = True
+
+# Para recibir datos al crear usuario (Sign Up)
+class UserCreate(UserBase):
+    password: str
+    role: str = "asesor"
+
+# Para responder datos al cliente (sin password)
+class UserResponse(UserBase):
+    id: int
+    role: str
+    is_active: bool
 
     class Config:
         from_attributes = True
 
-# Esquemas para el Token JWT
+# --- Esquemas para Tokens (JWT) ---
 class Token(BaseModel):
     access_token: str
     token_type: str
