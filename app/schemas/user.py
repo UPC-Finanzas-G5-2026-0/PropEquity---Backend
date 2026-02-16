@@ -1,5 +1,11 @@
-from typing import Optional  
+from enum import Enum
+from typing import Optional
 from pydantic import BaseModel, EmailStr
+
+class UserRole(str, Enum):
+    ADMIN = "administrador"
+    ASESOR = "asesor"
+    CLIENTE = "cliente"
 
 
 class UserBase(BaseModel):
@@ -10,12 +16,12 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
-    role: str = "asesor"
+    role: UserRole = UserRole.ASESOR
 
 
 class UserResponse(UserBase):
     id: int
-    role: str
+    role: UserRole
     is_active: bool
 
     class Config:
