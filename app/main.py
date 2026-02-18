@@ -15,14 +15,14 @@ app = FastAPI(
 # Montar carpeta de subidas para servir imágenes
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Configuración de CORS
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
+        "http://localhost:5173",   
+        "http://127.0.0.1:5173",   
         "https://propequity.vercel.app"
     ],
     allow_credentials=True,
@@ -30,7 +30,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
+
+app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
 app.include_router(units.router, prefix="/api/v1/units", tags=["Unidades"])
