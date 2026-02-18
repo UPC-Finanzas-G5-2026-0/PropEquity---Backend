@@ -16,7 +16,7 @@ SECRET_KEY = "tu_clave_secreta_super_segura_para_propequity"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # Esto le dice a FastAPI que la ruta para obtener el token es /auth/login
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")

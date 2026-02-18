@@ -1,19 +1,25 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ...database import get_db
 from ...models import Client
-from ...schemas.client import ClientCreate, ClientResponse
+from ...schemas.client import ClientResponse
 
 router = APIRouter()
 
-@router.post("/", response_model=ClientResponse)
-def create_client(client: ClientCreate, db: Session = Depends(get_db)):
-    db_client = Client(**client.model_dump())
-    db.add(db_client)
-    db.commit()
-    db.refresh(db_client)
-    return db_client
+@router.get("/", response_model=list[ClientResponse])
+def list_clients(db: Session = Depends(get_db)):
+    return db.query(Client).all()
 
-@router.get("/{dni}", response_model=ClientResponse)
-def get_client(dni: str, db: Session = Depends(get_db)):
-    return db.query(Client).filter(Client.dni == dni).first()
+@router.get("/{dni_cliente}", response_model=ClientResponse)
+def get_client(dni_cliente: str, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.dni_cliente == dni_cliente).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    return client
+
+@router.get("/code/{codigo_cliente}", response_model=ClientResponse)
+def get_client_by_code(codigo_cliente: int, db: Session = Depends(get_db)):
+    client = db.query(Client).filter(Client.codigo_cliente == codigo_cliente).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    return client

@@ -1,68 +1,70 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
-from enum import Enum
+from datetime import date
+from decimal import Decimal
 
-# --- 1. ENUMS ---
-class TipoTasa(str, Enum):
-    NOMINAL = "TNA"
-    EFECTIVA = "TEA"
+class SimulationBase(BaseModel):
+    cuota_inicial: Decimal = Field(default=0.00, ge=0)
+    bono_bbp: Decimal = Field(default=0.00, ge=0)
+    tasa_anual: Decimal = Field(..., gt=0)
+    capitalizacion: str = Field("Mensual")
+    plazo_meses: int = Field(..., ge=48, le=300)
+    codigo_tipo_gracia: int = Field(1, ge=1) # 1: Ninguno, 2: Parcial, 3: Total
+    meses_gracia: int = Field(0, ge=0)
+    seguro_desgravamen: Decimal = Field(default=0.00, ge=0)
+    codigo_tipo_tasa: int = Field(2, ge=1) # 1: Nominal, 2: Efectiva
+    codigo_unidad: int
+    codigo_cliente: Optional[int] = None
+    codigo_prospecto: Optional[int] = None
+    codigo_asesor: Optional[int] = None
 
-class FrecuenciaCapitalizacion(str, Enum):
-    DIARIA = "diaria"
-    MENSUAL = "mensual"
-    SEMESTRAL = "semestral"
+class SimulationCreate(SimulationBase):
+    pass
 
-class TipoGracia(str, Enum):
-    NINGUNO = "sin_gracia"
-    PARCIAL = "parcial"
-    TOTAL = "total"
+class SimulationSummaryResponse(BaseModel):
+    # Intermedios
+    precio_neto: Decimal
+    monto_financiar: Decimal
+    tasa_periodica: Decimal
+    tasa_efectiva_mensual: Decimal
+    factor_frances: Decimal
 
-class Moneda(str, Enum):
-    PEN = "PEN"
-    USD = "USD"
+    # Salidas (Outputs)
+    van: Decimal
+    tir: Decimal
+    tcea: Decimal
+    total_intereses: Decimal
+    total_pagado: Decimal
+    total_seguro: Decimal
 
-# --- 2. INPUT ---
-class SimulationInput(BaseModel):
-    moneda: Moneda = Moneda.PEN
-    precio_venta: float = Field(..., gt=0, description="Precio del inmueble")
-    cuota_inicial: float = Field(..., gt=0, description="Monto del pago inicial")
-    bono_bbp: float = Field(default=0.0, ge=0, description="Bono del Buen Pagador")
+    class Config:
+        from_attributes = True
 
-    tipo_tasa: TipoTasa = TipoTasa.EFECTIVA
-    tasa_valor: float = Field(..., gt=0, description="Valor porcentual de la tasa")
-    capitalization: Optional[FrecuenciaCapitalizacion] = None
-    
-    plazo_meses: int = Field(..., ge=48, le=300, description="Plazo en meses")
-    
-    seguro_desgravamen_porc: float = Field(..., ge=0, description="% Mensual desgravamen")
-    seguro_inmueble_anual: float = Field(..., ge=0, description="% Anual inmueble")
-
-    tipo_gracia: TipoGracia = TipoGracia.NINGUNO
-    meses_gracia: int = Field(0, ge=0, le=6, description="Meses de gracia")
-
-    @model_validator(mode='after')
-    def validar_reglas_negocio(self):
-        if self.cuota_inicial >= self.precio_venta:
-            raise ValueError("La cuota inicial no puede ser mayor al precio.")
-        if self.tipo_tasa == TipoTasa.NOMINAL and not self.capitalization:
-            raise ValueError("TNA requiere frecuencia de capitalización.")
-        if self.tipo_gracia != TipoGracia.NINGUNO and self.meses_gracia <= 0:
-            raise ValueError("Indique meses de gracia válidos.")
-        return self
-
-# --- 3. OUTPUT ---
-class PaymentDetail(BaseModel):
+class SimulationDetailResponse(BaseModel):
     numero_cuota: int
-    saldo_inicial: float
-    amortizacion: float
-    interes: float
-    seguro_desgravamen: float
-    seguro_inmueble: float
-    cuota_total: float
-    saldo_final: float
-    flujo_caja: float
+    cuota_total: Decimal
+    interes: Decimal
+    amortizacion: Decimal
+    seguro: Decimal
+    saldo_final: Decimal
+
+    class Config:
+        from_attributes = True
+
+class SimulationResponse(SimulationBase):
+    codigo_simulacion: int
+    fecha_simulacion: date
+    
+    # Datos relacionados de las tablas hermanas
+    resumen: Optional[SimulationSummaryResponse] = None
+    detalles: List[SimulationDetailResponse] = []
+
+    class Config:
+        from_attributes = True
 
 class SimulationResult(BaseModel):
-    input_resumen: dict
-    cronograma: List[PaymentDetail]
-    indicadores: dict
+    codigo_simulacion: int
+    codigo_unidad: int
+    cronograma: List[SimulationDetailResponse]
+    van: float
+    tir: float
