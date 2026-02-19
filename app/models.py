@@ -48,7 +48,6 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     password = Column(String(60), nullable=False)
     fecha_registro = Column(DateTime, default=datetime.utcnow, nullable=False)
-    is_active = Column(Boolean, default=True)
 
     codigo_rol = Column(Integer, ForeignKey("roles_usuario.codigo_rol"), nullable=False)
     rol_rel = relationship("RolUsuario", back_populates="usuarios")
@@ -164,8 +163,8 @@ class Simulation(Base):
     
     codigo_unidad = Column(Integer, ForeignKey("units.codigo_unidad"), nullable=False)
     unidad_rel = relationship("Unit", back_populates="simulaciones")
-    
     codigo_cliente = Column(Integer, ForeignKey("clients.codigo_cliente"), nullable=True)
+    cliente_rel = relationship("Client", back_populates="simulaciones") 
     codigo_prospecto = Column(Integer, ForeignKey("prospects.codigo_prospecto"), nullable=True)
     prospecto_rel = relationship("Prospect", back_populates="simulaciones")
     
