@@ -1,16 +1,24 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .database import engine, Base
+from .database import engine, Base, db_url
+from . import models # Asegurar que todos los modelos se registren en Base.metadata
+from .core.config import settings
 from .api.v1 import simulator, auth, clients, units 
+print(f"DEBUG: Engine URL = {engine.url}")
 
+# Crear tablas e inicializar mappers
 Base.metadata.create_all(bind=engine)
+
+from sqlalchemy.orm import configure_mappers
+configure_mappers()
 
 app = FastAPI(
     title="PropEquity API",
     description="API para gestión de créditos hipotecarios y simulaciones financieras.",
     version="1.0.0"
 )
+app.router.redirect_slashes = False
 
 # Montar carpeta de subidas para servir imágenes
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

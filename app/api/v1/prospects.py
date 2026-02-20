@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from ...database import get_db
-from ...models import Prospect, Advisor
-from ...schemas.prospect import ProspectCreate, ProspectResponse
+from app.database import get_db
+from app.models import Prospect, Advisor
+from app.schemas.prospect import ProspectCreate, ProspectResponse
 
 router = APIRouter()
 
