@@ -8,35 +8,35 @@ class Moneda(Base):
     __tablename__ = "monedas"
     codigo_moneda = Column(Integer, primary_key=True)
     simbolo_moneda = Column(CHAR(3), unique=True, nullable=False) # 'PEN', 'USD'
-    tipo_moneda = Column(String(20), nullable=False) # 'Soles', 'Dólares'
+    tipo_moneda = Column(String(50), nullable=False) # 'Soles', 'Dólares'
 
     unidades = relationship("Unit", back_populates="moneda_rel")
 
 class EstadoRegistroUnidad(Base):
     __tablename__ = "estados_registro_unidad"
     codigo_estado = Column(Integer, primary_key=True)
-    tipo_estado = Column(String(10), unique=True, nullable=False) # 'Activo', 'Inactivo'
+    tipo_estado = Column(String(50), unique=True, nullable=False) # 'Activo', 'Inactivo'
 
     unidades = relationship("Unit", back_populates="estado_rel")
 
 class RolUsuario(Base):
     __tablename__ = "roles_usuario"
     codigo_rol = Column(Integer, primary_key=True, autoincrement=True)
-    tipo_rol = Column(String(15), unique=True, nullable=False) # 'Administrador', 'Asesor', 'Cliente'
+    tipo_rol = Column(String(50), unique=True, nullable=False) # 'Administrador', 'Asesor', 'Cliente'
 
     usuarios = relationship("User", back_populates="rol_rel")
 
 class TipoTasa(Base):
     __tablename__ = "tipos_tasa"
     codigo_tipo_tasa = Column(Integer, primary_key=True)
-    tipo = Column(String(15), unique=True, nullable=False) # 'Nominal', 'Efectiva'
+    tipo = Column(String(50), unique=True, nullable=False) # 'Nominal', 'Efectiva'
 
     simulaciones = relationship("Simulation", back_populates="tipo_tasa_rel")
 
 class TipoGracia(Base):
     __tablename__ = "tipos_gracia"
     codigo_tipo_gracia = Column(Integer, primary_key=True)
-    tipo = Column(String(15), unique=True, nullable=False) # 'Ninguno', 'Parcial', 'Total'
+    tipo = Column(String(50), unique=True, nullable=False) # 'Ninguno', 'Parcial', 'Total'
 
     simulaciones = relationship("Simulation", back_populates="tipo_gracia_rel")
 
@@ -46,7 +46,7 @@ class User(Base):
     nombres = Column(String(50), nullable=False)
     apellidos = Column(String(50), nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
-    password = Column(String(60), nullable=False)
+    password = Column(String(255), nullable=False)
     fecha_registro = Column(DateTime, default=datetime.utcnow, nullable=False)
     is_active = Column(Boolean, default=True)
 
