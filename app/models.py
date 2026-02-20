@@ -215,6 +215,8 @@ class SimulationDetail(Base):
     amortizacion = Column(Numeric(12, 2))
     seguro = Column(Numeric(12, 2))
     saldo_final = Column(Numeric(12, 2))
+    
+    fecha_vencimiento = Column(Date, nullable=True) 
 
     simulacion_rel = relationship("Simulation", back_populates="detalles")
 
