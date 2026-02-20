@@ -146,6 +146,7 @@ class Simulation(Base):
     __tablename__ = "simulations"
     codigo_simulacion = Column(Integer, primary_key=True, autoincrement=True)
     fecha_simulacion = Column(Date, default=date.today, nullable=False)
+    fecha_inicio_prestamo = Column(Date, nullable=False)
     cuota_inicial = Column(Numeric(12, 2), default=0.00)
     bono_bbp = Column(Numeric(12, 2), default=0.00)
     
@@ -166,6 +167,8 @@ class Simulation(Base):
     unidad_rel = relationship("Unit", back_populates="simulaciones")
     
     codigo_cliente = Column(Integer, ForeignKey("clients.codigo_cliente"), nullable=True)
+    cliente_rel = relationship("Client", back_populates="simulaciones")
+    
     codigo_prospecto = Column(Integer, ForeignKey("prospects.codigo_prospecto"), nullable=True)
     prospecto_rel = relationship("Prospect", back_populates="simulaciones")
     
@@ -216,6 +219,7 @@ class SimulationDetail(Base):
     amortizacion = Column(Numeric(12, 2))
     seguro = Column(Numeric(12, 2))
     saldo_final = Column(Numeric(12, 2))
+    fecha_vencimiento = Column(Date, nullable=False)
 
     simulacion_rel = relationship("Simulation", back_populates="detalles")
 

@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 import numpy_financial as npf
 import pandas as pd
 import io
 from typing import List
-from ...database import get_db
-from ...models import Unit, Simulation, SimulationResult, SimulationDetail, Client, Advisor, Prospect, TipoTasa, TipoGracia
-from ...schemas.simulation import SimulationCreate, SimulationResponse
+from app.database import get_db
+from app.models import Unit, Simulation, SimulationResult, SimulationDetail, Client, Advisor, Prospect, TipoTasa, TipoGracia
+from app.schemas.simulation import SimulationCreate, SimulationResponse
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
@@ -32,12 +33,25 @@ def run_simulation(payload: SimulationCreate, db: Session = Depends(get_db)):
     # 2. Lógica Financiera (Inputs a Decimal)
     pv = Decimal(str(unit.precio_venta))
     cuota_inicial = payload.cuota_inicial
+    
+    # Validación de Cuota Inicial según requerimiento: >= 0 y < precio_venta
+    if cuota_inicial < 0:
+        raise HTTPException(status_code=400, detail="La cuota inicial no puede ser negativa")
+    
+    if cuota_inicial >= pv:
+        # Si es >= precio_venta, verificamos si fue enviada como porcentaje (0-100)
+        if cuota_inicial <= 100:
+            # Es un porcentaje válido
+            cuota_inicial = (cuota_inicial / 100) * pv
+        else:
+            raise HTTPException(status_code=400, detail=f"La cuota inicial ({cuota_inicial}) debe ser menor al precio de venta ({pv})")
+
     bono_bbp = payload.bono_bbp
     tasa_anual_pct = payload.tasa_anual / 100
     n = payload.plazo_meses
     m_gracia = payload.meses_gracia
     codigo_t_gracia = payload.codigo_tipo_gracia
-    seguro_mensual = payload.seguro_desgravamen
+    seguro_desgravamen = payload.seguro_desgravamen
 
     # A. Intermedios
     precio_neto = pv - bono_bbp
@@ -62,8 +76,23 @@ def run_simulation(payload: SimulationCreate, db: Session = Depends(get_db)):
     total_int = Decimal('0')
     total_seg = Decimal('0')
     flujos_caja = [float(-monto_financiar)]
+    
+    # Fecha de inicio para calcular vencimientos (por defecto hoy si no se envía)
+    fecha_base = payload.fecha_inicio_prestamo or date.today()
+    
+    # Validación: no puede ser anterior a hoy
+    if fecha_base < date.today():
+        raise HTTPException(status_code=400, detail="La fecha de inicio del préstamo no puede ser anterior a la fecha actual")
 
     for i in range(1, n + 1):
+        # Calcular fecha de vencimiento (mes a mes)
+        month = fecha_base.month + i
+        year = fecha_base.year + (month - 1) // 12
+        month = (month - 1) % 12 + 1
+        # Usamos el mismo día, pero limitamos al máximo del mes
+        dia_vencimiento = min(fecha_base.day, 28) # Simplificado para evitar errores de fin de mes
+        vencimiento = date(year, month, dia_vencimiento)
+
         interes_mes = saldo * tem
         seguro_mes = seguro_desgravamen
         
@@ -89,11 +118,12 @@ def run_simulation(payload: SimulationCreate, db: Session = Depends(get_db)):
             saldo -= pago_amort
 
         total_int += pago_int
-        total_seg += seguro_mensual
+        total_seg += seguro_desgravamen
         flujos_caja.append(float(pago_cuota))
 
         detalles_db.append(SimulationDetail(
             numero_cuota=i,
+            fecha_vencimiento=vencimiento,
             cuota_total=d2(pago_cuota),
             interes=d2(pago_int),
             amortizacion=d2(pago_amort),
@@ -122,6 +152,7 @@ def run_simulation(payload: SimulationCreate, db: Session = Depends(get_db)):
             codigo_tipo_gracia=payload.codigo_tipo_gracia,
             meses_gracia=payload.meses_gracia,
             seguro_desgravamen=payload.seguro_desgravamen,
+            fecha_inicio_prestamo=fecha_base,
             codigo_unidad=payload.codigo_unidad,
             codigo_cliente=payload.codigo_cliente,
             codigo_prospecto=payload.codigo_prospecto,
@@ -188,6 +219,7 @@ def export_simulation_excel(codigo_simulacion: int, db: Session = Depends(get_db
     for d in sim.detalles:
         data_detalles.append({
             "N° Cuota": d.numero_cuota,
+            "Fecha Vencimiento": d.fecha_vencimiento.strftime("%d/%m/%Y"),
             "Cuota Total": float(d.cuota_total),
             "Interés": float(d.interes),
             "Amortización": float(d.amortizacion),
@@ -240,9 +272,16 @@ def export_simulation_pdf(codigo_simulacion: int, db: Session = Depends(get_db))
     elements.append(Paragraph(summary, styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    data = [["Cuota", "Total", "Interés", "Amortización", "Saldo"]]
+    data = [["Cuota", "Vencimiento", "Total", "Interés", "Amortización", "Saldo"]]
     for d in sim.detalles:
-        data.append([d.numero_cuota, f"{d.cuota_total:,.2f}", f"{d.interes:,.2f}", f"{d.amortizacion:,.2f}", f"{d.saldo_final:,.2f}"])
+        data.append([
+            d.numero_cuota, 
+            d.fecha_vencimiento.strftime("%d/%m/%Y"),
+            f"{d.cuota_total:,.2f}", 
+            f"{d.interes:,.2f}", 
+            f"{d.amortizacion:,.2f}", 
+            f"{d.saldo_final:,.2f}"
+        ])
 
     t = Table(data, repeatRows=1)
     t.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.grey), ('GRID', (0,0), (-1,-1), 1, colors.black)]))

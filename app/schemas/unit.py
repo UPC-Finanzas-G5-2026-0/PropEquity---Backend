@@ -16,6 +16,18 @@ class UnitBase(BaseModel):
 class UnitCreate(UnitBase):
     pass
 
+class UnitUpdate(BaseModel):
+    direccion_unidad: Optional[str] = Field(None, max_length=70)
+    distrito_unidad: Optional[str] = Field(None, max_length=40)
+    area_unidad: Optional[float] = Field(None, gt=0)
+    precio_venta: Optional[float] = Field(None, gt=0)
+    codigo_moneda: Optional[int] = Field(None, ge=1)
+    codigo_estado: Optional[int] = Field(None, ge=1)
+    codigo_cliente: Optional[int] = None
+    codigo_prospecto: Optional[int] = None
+    codigo_asesor: Optional[int] = None
+    foto: Optional[str] = None
+
 class UnitResponse(BaseModel):
     codigo_unidad: int
     direccion_unidad: str

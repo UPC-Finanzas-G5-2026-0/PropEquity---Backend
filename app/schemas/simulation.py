@@ -13,6 +13,7 @@ class SimulationBase(BaseModel):
     meses_gracia: int = Field(0, ge=0)
     seguro_desgravamen: Decimal = Field(default=0.00, ge=0)
     codigo_tipo_tasa: int = Field(2, ge=1) # 1: Nominal, 2: Efectiva
+    fecha_inicio_prestamo: Optional[date] = None
     codigo_unidad: int
     codigo_cliente: Optional[int] = None
     codigo_prospecto: Optional[int] = None
@@ -47,6 +48,7 @@ class SimulationDetailResponse(BaseModel):
     amortizacion: Decimal
     seguro: Decimal
     saldo_final: Decimal
+    fecha_vencimiento: date
 
     class Config:
         from_attributes = True

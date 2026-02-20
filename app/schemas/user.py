@@ -27,6 +27,10 @@ class UserResponse(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: str
+    nombres: str
+    apellidos: str
+    codigo_usuario: int
 
 class TokenData(BaseModel):
     email: Optional[str] = None
