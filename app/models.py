@@ -86,7 +86,6 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
     fecha_registro = Column(DateTime, default=datetime.utcnow, nullable=False)
-    is_active = Column(Boolean, default=True)
 
     codigo_rol = Column(Integer, ForeignKey("roles_usuario.codigo_rol"), nullable=False)
     rol_rel = relationship("RolUsuario", back_populates="usuarios")
@@ -257,7 +256,6 @@ class Simulation(Base):
     __tablename__ = "simulations"
     codigo_simulacion = Column(Integer, primary_key=True, autoincrement=True)
     fecha_simulacion = Column(Date, default=date.today, nullable=False)
-    fecha_inicio_prestamo = Column(Date, nullable=False)
     cuota_inicial = Column(Numeric(12, 2), default=0.00)
 
     # Gastos de cierre
@@ -296,10 +294,8 @@ class Simulation(Base):
 
     codigo_unidad = Column(Integer, ForeignKey("units.codigo_unidad"), nullable=False)
     unidad_rel = relationship("Unit", back_populates="simulaciones")
-
     codigo_cliente = Column(Integer, ForeignKey("clients.codigo_cliente"), nullable=True)
-    cliente_rel = relationship("Client", back_populates="simulaciones")
-
+    cliente_rel = relationship("Client", back_populates="simulaciones") 
     codigo_prospecto = Column(Integer, ForeignKey("prospects.codigo_prospecto"), nullable=True)
     prospecto_rel = relationship("Prospect", back_populates="simulaciones")
 
@@ -358,18 +354,13 @@ class SimulationDetail(Base):
     codigo_simulacion = Column(Integer, ForeignKey("simulations.codigo_simulacion"), nullable=False)
     
     numero_cuota = Column(Integer, nullable=False)
+    cuota_total = Column(Numeric(12, 2))
+    interes = Column(Numeric(12, 2))
+    amortizacion = Column(Numeric(12, 2))
+    seguro = Column(Numeric(12, 2))
+    saldo_final = Column(Numeric(12, 2))
     
-    # ── VARIABLES TÉCNICAS (Versión Detallada) ──
-    saldo_inicio = Column(Numeric(12, 2), default=0.00) # Saldo anterior
-    cuota_total = Column(Numeric(12, 2), default=0.00)
-    interes = Column(Numeric(12, 2), default=0.00)
-    interes_capitalizado = Column(Numeric(12, 2), default=0.00) # capital_gracia
-    amortizacion = Column(Numeric(12, 2), default=0.00)
-    seguro = Column(Numeric(12, 2), default=0.00) # seguro_periodo
-    saldo_final = Column(Numeric(12, 2), default=0.00)
-    flujo_caja = Column(Numeric(12, 2), default=0.00) # flujo_caja_periodo
-    
-    fecha_vencimiento = Column(Date, nullable=False)
+    fecha_vencimiento = Column(Date, nullable=True) 
 
     simulacion_rel = relationship("Simulation", back_populates="detalles")
 

@@ -2,9 +2,13 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .database import engine, Base, db_url
-from . import models # Asegurar que todos los modelos se registren en Base.metadata
+from . import models 
 from .core.config import settings
 from .api.v1 import simulator, auth, clients, units, prospects
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+
 print(f"DEBUG: Engine URL = {engine.url}")
 
 # Crear tablas e inicializar mappers
@@ -20,10 +24,9 @@ app = FastAPI(
 )
 app.router.redirect_slashes = False
 
-# Montar carpeta de subidas para servir imágenes
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Configuración de CORS
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -41,12 +44,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 
-# Handler para que los errores 422 (Validación) también tengan cabecera CORS
-# y no den el error de "Network Error" en el frontend
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
@@ -60,7 +58,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
-# Handler específico para errores de validación de Pydantic (ValueError en model_validator)
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     import traceback
@@ -81,7 +78,6 @@ async def value_error_handler(request: Request, exc: ValueError):
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback
     
-    # Si es un ValueError, tratarlo como error de validación
     if isinstance(exc, ValueError):
         return JSONResponse(
             status_code=422,
@@ -94,7 +90,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             }
         )
     
-    # Para otros errores, convertir a string de forma segura
     error_detail = str(exc) if exc else "Error interno del servidor"
     
     return JSONResponse(
@@ -108,7 +103,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
+app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
 app.include_router(units.router, prefix="/api/v1/units", tags=["Unidades"])
