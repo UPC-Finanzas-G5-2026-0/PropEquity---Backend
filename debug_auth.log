@@ -1,6 +1,0 @@
-DEBUG REQUEST: Binding URL = sqlite:////Users/renzollerena/PropEquity-backend/propequity.db
-DEBUG REQUEST: Tables in DB = ['monedas', 'estados_registro_unidad', 'roles_usuario', 'tipos_tasa', 'tipos_gracia', 'users', 'administrators', 'advisors', 'clients', 'prospects', 'units', 'simulations', 'simulation_results', 'simulation_details']
-DEBUG RAW SELECT: Success
-DEBUG ORM SQL: SELECT users.codigo_usuario, users.nombres, users.apellidos, users.email, users.password, users.fecha_registro, users.codigo_rol 
-FROM users
-DEBUG ROLE QUERY: Success, count=3
