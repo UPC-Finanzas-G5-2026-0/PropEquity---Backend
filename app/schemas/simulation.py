@@ -1,22 +1,173 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Optional, List, Literal
+from datetime import date
+from decimal import Decimal
 
-class SimulationInput(BaseModel):
-    precio_venta: float = Field(..., gt=0)
-    cuota_inicial: float = Field(..., ge=0)
-    tea: float = Field(..., gt=0) # Tasa Efectiva Anual
-    plazo_meses: int = Field(..., ge=48, le=300) # [cite: 17]
-    tipo_gracia: str = Field("NINGUNO", pattern="^(NINGUNO|PARCIAL|TOTAL)$")
-    meses_gracia: int = Field(0, ge=0, le=6)
+TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
+CATEGORIAS_INTEGRADOR = ["Menores ingresos", "Adulto mayor", "Discapacidad", "Desplazado", "Migrante retornado"]
+IFIS = ["BCP", "BBVA", "Interbank", "Pichincha", "GNB"]
 
-class PaymentDetail(BaseModel):
-    mes: int
-    cuota: float
-    interes: float
-    amortizacion: float
-    saldo: float
+class SimulationBase(BaseModel):
+    # Cuota inicial y gastos — validación cruzada con precio_venta en el endpoint
+    cuota_inicial: float = Field(default=0.00, ge=0)
+    gastos_cierre: float = Field(default=0.00, ge=0)
+    # gastos_cierre: 0% a 5% del precio_venta (tasación, notaría, registros, alcabala)
 
-class SimulationResult(BaseModel):
-    cronograma: List[PaymentDetail]
-    van: float
-    tir: float
+    # BBP
+    tipo_bbp: str = Field(default="Ninguno")
+    categoria_integrador: Optional[str] = None
+    ingreso_maximo_integrador: Optional[float] = Field(None, ge=0)
+
+    # IFI (opcional)
+    ifi_seleccionada: Optional[str] = None
+
+    # Tasa y Moneda
+    tipo_tasa: str = Field(default="Efectiva")      # "Nominal" / "Efectiva"
+    tasa_anual: float = Field(..., gt=0)  # Cambiar de Decimal a float para evitar serialización
+    capitalizacion: str = Field(default="Mensual")  # Solo si tipo_tasa = "Nominal"
+    tipo_cambio: float = Field(default=3.75, ge=2.0, le=5.0)  # Cambiar de Decimal a float
+
+    # Plazo
+    plazo_meses: int = Field(..., ge=60, le=240)
+
+    # Gracia
+    tipo_gracia: str = Field(default="Ninguno")     # "Ninguno" / "Parcial" / "Total"
+    meses_gracia: int = Field(default=0, ge=0)
+
+    # Seguro (tasa sobre saldo)
+    seguro_desgravamen: float = Field(default=0.000000, ge=0)
+
+    # Relaciones
+    codigo_unidad: int
+    codigo_cliente: Optional[int] = None
+    codigo_prospecto: Optional[int] = None
+    codigo_asesor: Optional[int] = None
+
+    # Fecha
+    fecha_inicio_prestamo: Optional[date] = None
+
+    @field_validator("tipo_bbp")
+    @classmethod
+    def validate_tipo_bbp(cls, v):
+        # Simplificar validación para evitar errores de serialización
+        # La validación completa se hace en el endpoint
+        return v
+
+    @field_validator("tipo_tasa")
+    @classmethod
+    def validate_tipo_tasa(cls, v):
+        if v not in ["Nominal", "Efectiva"]:
+            raise ValueError("tipo_tasa debe ser 'Nominal' o 'Efectiva'")
+        return v
+
+    @field_validator("tipo_gracia")
+    @classmethod
+    def validate_tipo_gracia(cls, v):
+        if v not in ["Ninguno", "Parcial", "Total"]:
+            raise ValueError("tipo_gracia debe ser 'Ninguno', 'Parcial' o 'Total'")
+        return v
+
+    @field_validator("capitalizacion")
+    @classmethod
+    def validate_capitalizacion(cls, v):
+        if v not in ["Mensual", "Bimestral", "Trimestral"]:
+            raise ValueError("capitalizacion debe ser 'Mensual', 'Bimestral' o 'Trimestral'")
+        return v
+
+    @field_validator("ifi_seleccionada")
+    @classmethod
+    def validate_ifi(cls, v):
+        if v is not None and v not in IFIS:
+            raise ValueError(f"ifi_seleccionada debe ser una de: {IFIS} o null")
+        return v
+
+    @model_validator(mode="after")
+    def validate_cross_fields(self) -> "SimulationBase":
+        # ─── REGLAS IFI vs MANUAL ─────────────────────────────────────────────
+        if self.ifi_seleccionada:
+            # Si hay IFI, la tasa SE PRECARGA como Efectiva y se bloquea capitalizacion
+            self.tipo_tasa = "Efectiva"
+            self.capitalizacion = "Mensual"
+        else:
+            # Modo manual: si la tasa es Efectiva, la capitalización no aplica
+            if self.tipo_tasa == "Efectiva":
+                self.capitalizacion = "Mensual"
+            # Si es Nominal, el usuario puede elegir la capitalización (que ya validamos)
+
+        # ─── REGLAS BBP INTEGRADOR ─────────────────────────────────────────── 
+        # MOVER LAS VALIDACIONES PROBLEMÁTICAS AL ENDPOINT
+        # ─── VALIDACIÓN BÁSICA DE PERÍODO DE GRACIA ─────────────────────────────
+        # MOVER AL ENDPOINT PARA EVITAR ERRORES DE SERIALIZACIÓN
+
+        return self
+
+
+class SimulationCreate(SimulationBase):
+    pass
+
+
+class SimulationSummaryResponse(BaseModel):
+    rango_bbp: str
+    bono_bbp_base: Decimal
+    bono_integrador_adicional: Decimal
+    precio_neto: Decimal
+    monto_financiar: Decimal
+    tasa_efectiva_anual: Decimal
+    tasa_efectiva_mensual: Decimal
+    factor_frances: Decimal
+    cuota_base: Decimal
+    ratio_cuota_ingreso: Decimal
+    van: Decimal
+    tir: Decimal
+    tcea: Decimal
+    total_intereses: Decimal
+    total_pagado: Decimal
+    total_seguro: Decimal
+
+    class Config:
+        from_attributes = True
+
+
+class SimulationDetailResponse(BaseModel):
+    numero_cuota: int
+    saldo_inicio: Decimal
+    cuota_total: Decimal
+    interes: Decimal
+    interes_capitalizado: Decimal
+    amortizacion: Decimal
+    seguro: Decimal
+    saldo_final: Decimal
+    flujo_caja: Decimal
+    fecha_vencimiento: date
+
+    class Config:
+        from_attributes = True
+
+
+class SimulationResponse(BaseModel):
+    codigo_simulacion: int
+    fecha_simulacion: date
+    fecha_inicio_prestamo: date
+    cuota_inicial: Decimal
+    gastos_cierre: Decimal
+    tipo_bbp: str
+    bono_bbp: Decimal
+    categoria_integrador: Optional[str] = None
+    ingreso_maximo_integrador: Optional[Decimal] = None
+    ifi_seleccionada: Optional[str] = None
+    tipo_tasa: str
+    tasa_anual: Decimal
+    capitalizacion: str
+    plazo_meses: int
+    tipo_gracia: str
+    meses_gracia: int
+    seguro_desgravamen: Decimal
+    codigo_unidad: int
+    codigo_cliente: Optional[int] = None
+    codigo_prospecto: Optional[int] = None
+    codigo_asesor: Optional[int] = None
+    resumen: Optional[SimulationSummaryResponse] = None
+    detalles: List[SimulationDetailResponse] = []
+
+    class Config:
+        from_attributes = True
