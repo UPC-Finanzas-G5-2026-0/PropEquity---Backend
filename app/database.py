@@ -26,7 +26,11 @@ if db_url.startswith("postgresql://"):
 host_info = db_url.split('@')[-1] if '@' in db_url else "Desconocido"
 print(f"DATABASE ENGINE: Conectado a PostgreSQL ({host_info})")
 
-engine = create_engine(db_url)
+engine = create_engine(
+    db_url, 
+    pool_pre_ping=True,  # Verifica si la conexión está viva antes de usarla
+    pool_recycle=300     # Renueva las conexiones cada 5 minutos por seguridad
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
