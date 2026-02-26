@@ -364,14 +364,15 @@ def run_simulation(
 
         detalles_db.append(SimulationDetail(
             numero_cuota=i,
-            saldo_inicio=d2(saldo_anterior),
+            # ¡MODIFICACIONES RENZO! -> Comentados para no romper la BD
+            # saldo_inicio=d2(saldo_anterior), 
             interes=d2(int_periodo),
-            interes_capitalizado=d2(interes_capitalizado),
+            # interes_capitalizado=d2(interes_capitalizado),
             seguro=d2(seguro_periodo),
             amortizacion=d2(amort_periodo),
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
-            flujo_caja=d2(-cuota_t), # flujo_caja_periodo
+            # flujo_caja=d2(-cuota_t), 
             fecha_vencimiento=date(fecha_base.year + (fecha_base.month + i - 1) // 12, (fecha_base.month + i - 1) % 12 + 1, min(fecha_base.day, 28))
         ))
 
