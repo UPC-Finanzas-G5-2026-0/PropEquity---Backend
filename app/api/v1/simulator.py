@@ -140,9 +140,13 @@ def run_simulation(
         payload.categoria_integrador = None
         payload.ingreso_maximo_integrador = None
 
-    # Validar período de gracia
+    # Validar período de gracia general
     if payload.meses_gracia >= payload.plazo_meses:
         raise HTTPException(status_code=422, detail="meses_gracia debe ser menor que plazo_meses.")
+
+    # Validar período de gracia TOTAL (máximo 6 meses)
+    if payload.tipo_gracia == "Total" and payload.meses_gracia > 6:
+        raise HTTPException(status_code=422, detail="El periodo de gracia total no puede superar los 6 meses.")
 
     # ═══ FIN VALIDACIONES MOVIDAS ═══
 
@@ -253,7 +257,6 @@ def run_simulation(
     # ─── MODO IFI vs MODO MANUAL (Precarga y Bloqueos) ─────────────────────────
     if payload.ifi_seleccionada:
         # ── MODO IFI ──
-        # tipo_tasa y tasa_anual se precargan/bloquean según reglas del banco
         ifi_row = db.query(CreditoIFI).filter(
             CreditoIFI.nombre_ifi == payload.ifi_seleccionada,
             CreditoIFI.monto_min <= monto_financiar,
@@ -266,9 +269,8 @@ def run_simulation(
                 detail=f"Monto de S/ {float(monto_financiar):,.2f} fuera de rango para {payload.ifi_seleccionada}."
             )
 
-        # BLOQUEO: Con IFI, la tasa SIEMPRE es Efectiva (TEA)
         payload.tipo_tasa = "Efectiva"
-        payload.capitalizacion = "Mensual" # Deshabilitado/Default
+        payload.capitalizacion = "Mensual" 
 
         tasa_ingresada = Decimal(str(payload.tasa_anual))
         if not (ifi_row.tea_min <= tasa_ingresada <= ifi_row.tea_max):
@@ -280,7 +282,6 @@ def run_simulation(
                 )
             )
         
-        # Validación de PLAZO específico de la IFI
         plazo_anios = payload.plazo_meses / 12
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
             raise HTTPException(
@@ -300,10 +301,8 @@ def run_simulation(
 
     else:
         # ── MODO MANUAL ──
-        # Si eliges "Efectiva", capitalización no aplica (forzamos Mensual)
         if payload.tipo_tasa == "Efectiva":
             payload.capitalizacion = "Mensual"
-        # Si eliges "Nominal", se usa la capitalización enviada por el usuario
 
     # ───────────────────────────────────────────────────────────────────────────
 
@@ -317,7 +316,7 @@ def run_simulation(
     
     tem = (1 + tea)**(Decimal("1")/Decimal("12")) - 1
 
-    # Factor Francés
+    # Factor Francés Inicial
     n_total = payload.plazo_meses
     m_gracia = payload.meses_gracia
     n_reales = n_total - m_gracia
@@ -325,7 +324,7 @@ def run_simulation(
     factor = (tem * (1 + tem) ** n_reales) / ((1 + tem) ** n_reales - 1) if tem > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
-    # 5. Cronograma detallado
+    # 5. Cronograma detallado (Actualizado con Gracia Total y Parcial)
     detalles_db = []
     saldo = monto_financiar
     seguro_tasa = Decimal(str(payload.seguro_desgravamen))
@@ -336,27 +335,38 @@ def run_simulation(
 
     for i in range(1, n_total + 1):
         saldo_anterior = saldo
-        interes_capitalizado = Decimal("0")
         
         int_periodo = saldo_anterior * tem
-        seguro_periodo = saldo_anterior * seguro_tasa # seguro_periodo = saldo_anterior * seguro_rate
+        seguro_periodo = saldo_anterior * seguro_tasa
         
         if i <= m_gracia:
             if payload.tipo_gracia == "Total":
-                interes_capitalizado = int_periodo
-                amort_periodo = Decimal("0")
-                cuota_t = Decimal("0") 
-                saldo = saldo_anterior + interes_capitalizado
-                # Recalcular cuota tras gracia total
-                if i == m_gracia: cuota_base = saldo * factor
-            else: # Parcial
+                # Gracia Total: Capitaliza intereses, no paga cuota.
+                amort_periodo = -int_periodo 
+                cuota_t = Decimal("0")
+                seguro_periodo = Decimal("0") 
+                saldo = saldo_anterior + int_periodo
+                
+                # En el último mes de gracia, recalculamos el factor y la cuota fija base al nuevo saldo inflado
+                if i == m_gracia: 
+                    nuevo_factor = (tem * (1 + tem) ** n_reales) / ((1 + tem) ** n_reales - 1) if tem > 0 else (Decimal("1")/Decimal(str(n_reales)))
+                    cuota_base = saldo * nuevo_factor
+            else: 
+                # Gracia Parcial: Paga interés y seguro, amortización cero.
                 amort_periodo = Decimal("0")
                 cuota_t = int_periodo + seguro_periodo
                 saldo = saldo_anterior
         else:
+            # Periodo Regular (Sistema Francés)
             amort_periodo = cuota_base - int_periodo
             cuota_t = cuota_base + seguro_periodo
             saldo = saldo_anterior - amort_periodo
+            
+            # Ajuste de céntimos en la última cuota
+            if i == n_total and saldo != Decimal("0"):
+                cuota_t += saldo
+                amort_periodo += saldo
+                saldo = Decimal("0")
         
         total_int += int_periodo
         total_seg += seguro_periodo
@@ -364,12 +374,11 @@ def run_simulation(
 
         detalles_db.append(SimulationDetail(
             numero_cuota=i,
-            # ¡MODIFICACIONES RENZO! -> Comentados para no romper la BD
             # saldo_inicio=d2(saldo_anterior), 
             interes=d2(int_periodo),
             # interes_capitalizado=d2(interes_capitalizado),
             seguro=d2(seguro_periodo),
-            amortizacion=d2(amort_periodo),
+            amortizacion=d2(amort_periodo), 
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
             # flujo_caja=d2(-cuota_t), 
@@ -389,7 +398,7 @@ def run_simulation(
     if entity:
         ifm = Decimal(str(entity.ingreso_mensual)) + Decimal(str(entity.ingreso_conyuge))
 
-    ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("101.0") # Default to fail if no income
+    ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("101.0") 
     
     # Límite del Fondo MiVivienda: ratio cuota/ingreso no debe superar 40%
     # para viviendas de hasta S/ 205k. Para montos mayores, se es más flexible.

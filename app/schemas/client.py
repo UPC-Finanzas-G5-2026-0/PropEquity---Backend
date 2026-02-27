@@ -1,10 +1,10 @@
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
+from app.schemas.user import UserResponse
 
 # --- Schemas embebidos para evitar referencias circulares ---
-
 class UnitSummary(BaseModel):
     codigo_unidad: int
     direccion_unidad: str
@@ -30,7 +30,6 @@ class SimulationSummary(BaseModel):
         from_attributes = True
 
 # --- Schemas principales ---
-
 class ClientBase(BaseModel):
     dni_cliente: str = Field(..., pattern=r"^\d{8}$")
     telefono_cliente: str = Field(..., pattern=r"^9\d{8}$")
@@ -57,9 +56,13 @@ class ClientBase(BaseModel):
         return self
 
 class ClientCreate(ClientBase):
-    pass
+    # Campos adicionales requeridos para crear el Usuario asociado
+    nombres: str
+    apellidos: str
+    email: str 
 
 class ClientUpdate(BaseModel):
+    # Todos los campos opcionales para permitir edición parcial (PATCH/PUT)
     dni_cliente: Optional[str] = Field(None, pattern=r"^\d{8}$")
     telefono_cliente: Optional[str] = Field(None, pattern=r"^9\d{8}$")
     ingreso_mensual: Optional[float] = Field(None, ge=0)
@@ -74,8 +77,6 @@ class ClientUpdate(BaseModel):
     es_propietario_vivienda: Optional[bool] = None
     nombres: Optional[str] = Field(None, max_length=50)
     apellidos: Optional[str] = Field(None, max_length=50)
-
-from app.schemas.user import UserResponse
 
 class ClientResponse(BaseModel):
     """Schema de respuesta completo con unidades y simulaciones asociadas."""
@@ -92,6 +93,7 @@ class ClientResponse(BaseModel):
     doc_conyuge: Optional[str] = None
     conyuge_propietario: Optional[bool] = None
     es_propietario_vivienda: Optional[bool] = None
+    
     usuario: UserResponse
     # Relaciones embebidas
     unidades: List[UnitSummary] = []
