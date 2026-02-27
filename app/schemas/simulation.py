@@ -32,7 +32,7 @@ class SimulationBase(BaseModel):
 
     # Gracia
     tipo_gracia: str = Field(default="Ninguno")     # "Ninguno" / "Parcial" / "Total"
-    meses_gracia: int = Field(default=0, ge=0)
+    meses_gracia: int = Field(default=0, ge=0, le=6, description="Máximo 6 meses de gracia")
 
     # Seguro (tasa sobre saldo)
     seguro_desgravamen: float = Field(default=0.000000, ge=0)
