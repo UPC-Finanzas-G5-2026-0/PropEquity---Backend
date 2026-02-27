@@ -6,7 +6,7 @@ import shutil
 import os
 from typing import Optional
 from app.database import get_db
-from app.models import Unit, Client, Moneda, EstadoRegistroUnidad, Prospect, Advisor, User, TipoVenta, BonoBBP
+from app.models import Unit, Client, Moneda, EstadoRegistroUnidad, Prospect, Advisor, User, TipoVenta, BonoBBP, ModalidadVivienda
 from app.schemas.unit import UnitResponse, UnitUpdate, UnitCreate
 from app.core.security import get_current_user
 
@@ -23,6 +23,14 @@ def add_unit_json(
 ):
     """Crear unidad usando JSON con validaciones completas"""
     try:
+        # 🚨 CANDADO DE SEGURIDAD (User Story)
+        role = current_user.rol_rel.tipo_rol
+        if role != "Administrador":
+            raise HTTPException(
+                status_code=403,
+                detail="Acceso denegado. Solo los administradores pueden registrar nuevas unidades."
+            )
+
         # VALIDACIONES DE NEGOCIO - DS 004-2025-VIVIENDA
         if unit_in.precio_venta < 68800.00 or unit_in.precio_venta > 488800.00:
             raise HTTPException(
@@ -48,10 +56,8 @@ def add_unit_json(
                 status_code=422,
                 detail="El área debe ser mayor que 0 m²"
             )
-
-        role = current_user.rol_rel.tipo_rol
         
-        # Si es cliente, forzamos que la unidad sea suya
+        # Si es cliente, forzamos que la unidad sea suya (Aunque aquí solo entra Admin, lo dejamos por seguridad)
         codigo_cliente = unit_in.codigo_cliente
         codigo_asesor = unit_in.codigo_asesor
         codigo_prospecto = unit_in.codigo_prospecto
@@ -137,6 +143,14 @@ def add_unit(
 ):
     """Crear unidad usando Form data (con foto) - mantiene compatibilidad"""
     try:
+        # 🚨 CANDADO DE SEGURIDAD (User Story)
+        role = current_user.rol_rel.tipo_rol
+        if role != "Administrador":
+            raise HTTPException(
+                status_code=403,
+                detail="Acceso denegado. Solo los administradores pueden registrar nuevas unidades."
+            )
+
         # VALIDACIONES DE NEGOCIO - DS 004-2025-VIVIENDA
         if precio_venta < 68800.00 or precio_venta > 488800.00:
             raise HTTPException(
@@ -146,25 +160,14 @@ def add_unit(
         
         # VALIDACIONES DE CAMPOS
         if len(direccion_unidad) > 70:
-            raise HTTPException(
-                status_code=422,
-                detail="La dirección no puede exceder 70 caracteres"
-            )
+            raise HTTPException(status_code=422, detail="La dirección no puede exceder 70 caracteres")
         
         if len(distrito_unidad) > 40:
-            raise HTTPException(
-                status_code=422,
-                detail="El distrito no puede exceder 40 caracteres"
-            )
+            raise HTTPException(status_code=422, detail="El distrito no puede exceder 40 caracteres")
         
         if area_unidad <= 0:
-            raise HTTPException(
-                status_code=422,
-                detail="El área debe ser mayor que 0 m²"
-            )
+            raise HTTPException(status_code=422, detail="El área debe ser mayor que 0 m²")
 
-        role = current_user.rol_rel.tipo_rol
-        
         # Si es cliente, forzamos que la unidad sea suya
         if role == "Cliente":
             codigo_cliente = current_user.codigo_usuario
@@ -209,7 +212,7 @@ def add_unit(
         db.flush()
 
         # 4. Guardar foto if exists
-        if foto:
+        if foto and foto.filename:
             file_ext = foto.filename.split(".")[-1]
             file_name = f"UNI-{new_unit.codigo_unidad}.{file_ext}"
             foto_path = os.path.join(UPLOAD_DIR, file_name)
@@ -227,16 +230,10 @@ def add_unit(
     except IntegrityError as e:
         db.rollback()
         message = str(e.orig) if getattr(e, "orig", None) else str(e)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Error de integridad en base de datos: {message}"
-        )
+        raise HTTPException(status_code=400, detail=f"Error de integridad en base de datos: {message}")
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error interno del servidor: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
 
 @router.get("/", response_model=list[UnitResponse])
 def get_units(
@@ -296,12 +293,6 @@ def get_bbp_options(
 ):
     """
     Devuelve los tipos de BBP disponibles para una unidad.
-    ⚠️  El BBP solo aplica con Crédito MiVivienda a través de una IFI.
-        Si no se indica ifi_seleccionada, retorna solo ["Ninguno"].
-
-    Opciones EXCLUSIVAS según tipo de vivienda:
-      - Tradicional (es_sostenible=false): Ninguno / Tradicional / Integrador Tradicional
-      - Sostenible  (es_sostenible=true):  Ninguno / Sostenible  / Integrador Sostenible
     """
     from decimal import Decimal
     unit = db.query(Unit).filter(Unit.codigo_unidad == codigo_unidad).first()
@@ -314,9 +305,6 @@ def get_bbp_options(
     ).first()
     modalidad = mod.nombre_modalidad if mod else "Compra"
     
-    # 🚨 Conversión de Moneda para Validaciones 🚨
-    # Usamos un tipo de cambio estándar de 3.75 para esta consulta informativa
-    # o podrías hacerlo dinámico si pasas el tipo_cambio por query (opcional)
     tipo_cambio = Decimal("3.75")
     precio_venta = Decimal(str(unit.precio_venta))
     precio_pen = precio_venta
@@ -382,8 +370,6 @@ def get_bbp_options(
         "nota": nota
     }
 
-from fastapi.encoders import jsonable_encoder
-
 @router.put("/{codigo_unidad}", response_model=UnitResponse)
 @router.put("/{codigo_unidad}/", response_model=UnitResponse, include_in_schema=False)
 def update_unit(
@@ -424,8 +410,6 @@ def update_unit(
             raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta unidad.")
         
         if role == "Asesor" and unit.codigo_asesor != user_id:
-            # Un asesor solo puede modificar las unidades que tiene asignadas
-            # Si un admin se la quitó, ya no puede editarla.
             raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta unidad.")
         
         # Mapear campos que no son nulos
@@ -444,7 +428,6 @@ def update_unit(
 
         # Manejar foto
         if remove_foto and not (foto and foto.filename):
-            # Usuario eliminó la foto explícitamente
             unit.foto = None
         elif foto and foto.filename:
             file_ext = foto.filename.split(".")[-1]
@@ -478,9 +461,6 @@ def update_unit_json(
 ):
     """
     Actualiza una unidad usando datos JSON.
-    - Administradores: pueden editar cualquier unidad.
-    - Asesores: pueden editar las unidades que gestionan.
-    - Clientes: pueden editar sus propias unidades.
     """
     try:
         unit = db.query(Unit).filter(Unit.codigo_unidad == codigo_unidad).first()
@@ -508,6 +488,32 @@ def update_unit_json(
         
     except HTTPException:
         db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
+# ─── 5. RUTA DELETE (NUEVA PARA EL FRONTEND) ───────────────────────────────────
+@router.delete("/{codigo_unidad}")
+def delete_unit(
+    codigo_unidad: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Eliminar unidad (Solo Administrador)"""
+    try:
+        role = current_user.rol_rel.tipo_rol
+        if role != "Administrador":
+            raise HTTPException(status_code=403, detail="Acceso denegado. Solo los administradores pueden eliminar unidades.")
+            
+        unit = db.query(Unit).filter(Unit.codigo_unidad == codigo_unidad).first()
+        if not unit:
+            raise HTTPException(status_code=404, detail="Unidad no encontrada")
+            
+        db.delete(unit)
+        db.commit()
+        return {"success": True, "message": "Unidad eliminada correctamente"}
+    except HTTPException:
         raise
     except Exception as e:
         db.rollback()
