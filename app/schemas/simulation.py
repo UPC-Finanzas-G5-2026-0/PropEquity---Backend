@@ -127,18 +127,17 @@ class SimulationSummaryResponse(BaseModel):
     class Config:
         from_attributes = True
 
-
 class SimulationDetailResponse(BaseModel):
     numero_cuota: int
-    saldo_inicio: Decimal
-    cuota_total: Decimal
+    fecha_vencimiento: date
+    # saldo_inicio: Decimal        <-- BÓRRALO O COMENTALO
     interes: Decimal
-    interes_capitalizado: Decimal
+    # interes_capitalizado: Decimal <-- BÓRRALO O COMENTALO
     amortizacion: Decimal
     seguro: Decimal
+    cuota_total: Decimal
     saldo_final: Decimal
-    flujo_caja: Decimal
-    fecha_vencimiento: date
+    # flujo_caja: Decimal          <-- BÓRRALO O COMENTALO
 
     class Config:
         from_attributes = True
