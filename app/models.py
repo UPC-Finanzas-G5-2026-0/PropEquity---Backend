@@ -257,6 +257,7 @@ class Simulation(Base):
     codigo_simulacion = Column(Integer, primary_key=True, autoincrement=True)
     fecha_simulacion = Column(Date, default=date.today, nullable=False)
     cuota_inicial = Column(Numeric(12, 2), default=0.00)
+    fecha_inicio_prestamo = Column(Date, nullable=False)
 
     # Gastos de cierre
     gastos_cierre = Column(Numeric(12, 2), default=Decimal("0.00"))

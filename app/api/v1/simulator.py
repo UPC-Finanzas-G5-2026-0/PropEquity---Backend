@@ -62,7 +62,6 @@ def get_ifis_disponibles(
 ):
     """
     Devuelve las IFIs disponibles para un monto de financiamiento dado.
-    Incluye rango de TEA y tasas de seguro por tipo (individual/mancomunado).
     """
     from decimal import Decimal
     monto_dec = Decimal(str(monto))
@@ -116,45 +115,36 @@ def run_simulation(
             raise HTTPException(status_code=400, detail="El asesor debe indicar el codigo_prospecto para simular.")
 
     # ═══ VALIDACIONES MOVIDAS DEL SCHEMA PARA EVITAR ERRORES 500 ═══
-    
-    # Validar tipo BBP
     TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
     if payload.tipo_bbp not in TIPOS_BBP:
         raise HTTPException(status_code=422, detail=f"tipo_bbp debe ser uno de: {TIPOS_BBP}")
     
-    # Validar BBP Integrador
     CATEGORIAS_INTEGRADOR = ["Menores ingresos", "Adulto mayor", "Discapacidad", "Desplazado", "Migrante retornado"]
     if "Integrador" in payload.tipo_bbp:
         if not payload.categoria_integrador:
             raise HTTPException(status_code=422, detail="categoria_integrador es requerida cuando tipo_bbp es Integrador.")
         if payload.categoria_integrador not in CATEGORIAS_INTEGRADOR:
             raise HTTPException(status_code=422, detail=f"categoria_integrador debe ser una de: {CATEGORIAS_INTEGRADOR}")
-        # ingreso_maximo solo aplica si categoria = "Menores ingresos"
         if payload.categoria_integrador == "Menores ingresos":
             if payload.ingreso_maximo_integrador is None:
                 raise HTTPException(status_code=422, detail="ingreso_maximo_integrador es requerido para 'Menores ingresos'.")
             if payload.ingreso_maximo_integrador > 4746.00:
                 raise HTTPException(status_code=422, detail="ingreso_maximo_integrador no puede superar S/ 4,746.00")
     else:
-        # Si no es integrador, limpiar campos integrador
         payload.categoria_integrador = None
         payload.ingreso_maximo_integrador = None
 
-    # Validar período de gracia general
     if payload.meses_gracia >= payload.plazo_meses:
         raise HTTPException(status_code=422, detail="meses_gracia debe ser menor que plazo_meses.")
 
-    # Validar período de gracia TOTAL (máximo 6 meses)
     if payload.tipo_gracia == "Total" and payload.meses_gracia > 6:
         raise HTTPException(status_code=422, detail="El periodo de gracia total no puede superar los 6 meses.")
-
     # ═══ FIN VALIDACIONES MOVIDAS ═══
 
-    # 3. Conversión de Moneda y Cálculo de BBP (R1-R5)
+    # 3. Conversión de Moneda y Cálculo de BBP
     pv = Decimal(str(unit.precio_venta))
     tipo_cambio = Decimal(str(payload.tipo_cambio))
 
-    # El BBP siempre se valida en Soles (PEN) según reglamento
     pv_pen = pv
     if unit.moneda_rel.simbolo_moneda == "USD":
         pv_pen = pv * tipo_cambio
@@ -162,7 +152,6 @@ def run_simulation(
     bono_info = get_bono_info(db, pv_pen, payload.tipo_bbp, modalidad)
     rango = bono_info["rango"]
     
-    # Los bonos en la DB están en PEN. Si la unidad es USD, convertimos el bono a USD.
     bono_base = bono_info["base"]
     bono_integrador = bono_info["integrador"]
     if unit.moneda_rel.simbolo_moneda == "USD":
@@ -171,11 +160,9 @@ def run_simulation(
     
     bono_total = bono_base + bono_integrador
 
-    # Validaciones exclusividad BBP
     if payload.tipo_bbp != "Ninguno" and not payload.ifi_seleccionada:
         raise HTTPException(status_code=400, detail="El BBP solo aplica con el Crédito MiVivienda a través de una IFI.")
 
-    # Vivienda Sostenible vs Tradicional: Exclusividad
     if unit.es_sostenible:
         if payload.tipo_bbp in ["Tradicional", "Integrador Tradicional"]:
             raise HTTPException(status_code=400, detail="Vivienda Sostenible solo acepta bonos Sostenibles.")
@@ -183,18 +170,12 @@ def run_simulation(
         if payload.tipo_bbp in ["Sostenible", "Integrador Sostenible"]:
             raise HTTPException(status_code=400, detail="Vivienda Tradicional solo acepta bonos Tradicionales.")
 
-    # 🚨 RESTRICCIÓN NCMV: Solo Primera Venta 🚨
     if payload.tipo_bbp != "Ninguno":
         tipo_v = db.query(TipoVenta).filter(TipoVenta.codigo_tipo_venta == unit.codigo_tipo_venta).first()
         if tipo_v and tipo_v.nombre_tipo_venta == "Segunda venta":
-            raise HTTPException(
-                status_code=400,
-                detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta (Nuevas). Las viviendas de segunda venta no califican."
-            )
+            raise HTTPException(status_code=400, detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta.")
 
-    # 🚨 RESTRICCIÓN MIVIVIENDA: Propiedad y Apoyo Estatal Previo 🚨
     if payload.tipo_bbp != "Ninguno":
-        # Obtener entidad para validar (Cliente o Prospecto)
         entity = None
         if role == "Cliente":
             entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
@@ -203,49 +184,28 @@ def run_simulation(
         
         if entity:
             if entity.es_propietario_vivienda or entity.hijos_menores_propietarios:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El Crédito MiVivienda NO aplica si el titular, cónyuge o hijos menores son propietarios de otra vivienda."
-                )
+                raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya son propietarios de otra vivienda.")
             if entity.recibio_apoyo_estatal:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El Crédito MiVivienda y sus bonos NO aplican si el beneficiario ya recibió apoyo habitacional del Estado (Techo Propio, FMV, etc.)."
-                )
+                raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya recibió apoyo habitacional del Estado.")
             if entity.cantidad_creditos_fmv >= 2:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El beneficiario ha alcanzado el límite máximo de 2 créditos MiVivienda permitidos por historial."
-                )
+                raise HTTPException(status_code=400, detail="Ha alcanzado el límite máximo de 2 créditos MiVivienda.")
             if entity.tiene_credito_fmv_activo:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El beneficiario tiene un Crédito MiVivienda ACTIVO. No puede solicitar otro hasta cancelar el actual."
-                )
+                raise HTTPException(status_code=400, detail="Tiene un Crédito MiVivienda ACTIVO.")
 
     # 4. Gastos cierre y Cuota Inicial
     gastos_cierre = Decimal(str(payload.gastos_cierre))
     cuota_inicial = Decimal(str(payload.cuota_inicial))
 
-    # 🚨 RESTRICCIÓN NCMV: Cuota Inicial Mínima 🚨
-    # 10% para Compra, 7.5% para Construcción/Mejoramiento
     porcentaje_inicial = (cuota_inicial / pv) * 100
-    if modalidad in ["Construccion", "Mejoramiento"]:
-        min_porcentaje = Decimal("7.5")
-    else:
-        min_porcentaje = Decimal("10.0")
+    min_porcentaje = Decimal("7.5") if modalidad in ["Construccion", "Mejoramiento"] else Decimal("10.0")
 
     if porcentaje_inicial < min_porcentaje:
-        raise HTTPException(
-            status_code=400,
-            detail=f"La cuota inicial ({float(porcentaje_inicial):.1f}%) es insuficiente. Para modalidad '{modalidad}' se requiere un mínimo del {float(min_porcentaje)}%."
-        )
+        raise HTTPException(status_code=400, detail=f"La cuota inicial es insuficiente. Se requiere un mínimo del {float(min_porcentaje)}%.")
 
-    # 5. Cálculo del Préstamo (Monto a Financiar)
+    # 5. Cálculo del Préstamo
     precio_neto = pv - bono_total
     monto_financiar = (precio_neto - cuota_inicial) + gastos_cierre
 
-    # Restricción LTV 90%
     if modalidad not in ["Construccion", "Mejoramiento"]:
         max_financiar = pv * Decimal("0.90")
         if monto_financiar > max_financiar:
@@ -254,9 +214,8 @@ def run_simulation(
     if monto_financiar <= 0:
         raise HTTPException(status_code=400, detail="El monto a financiar debe ser mayor a 0.")
 
-    # ─── MODO IFI vs MODO MANUAL (Precarga y Bloqueos) ─────────────────────────
+    # ─── MODO IFI vs MODO MANUAL ─────────────────────────
     if payload.ifi_seleccionada:
-        # ── MODO IFI ──
         ifi_row = db.query(CreditoIFI).filter(
             CreditoIFI.nombre_ifi == payload.ifi_seleccionada,
             CreditoIFI.monto_min <= monto_financiar,
@@ -264,59 +223,42 @@ def run_simulation(
         ).first()
 
         if not ifi_row:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Monto de S/ {float(monto_financiar):,.2f} fuera de rango para {payload.ifi_seleccionada}."
-            )
+            raise HTTPException(status_code=400, detail=f"Monto fuera de rango para {payload.ifi_seleccionada}.")
 
         payload.tipo_tasa = "Efectiva"
         payload.capitalizacion = "Mensual" 
 
         tasa_ingresada = Decimal(str(payload.tasa_anual))
         if not (ifi_row.tea_min <= tasa_ingresada <= ifi_row.tea_max):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"La tasa {float(tasa_ingresada):.2f}% está fuera del rango TEA "
-                    f"de {payload.ifi_seleccionada} ({float(ifi_row.tea_min):.2f}% – {float(ifi_row.tea_max):.2f}%)."
-                )
-            )
+            raise HTTPException(status_code=400, detail=f"La tasa está fuera del rango TEA de {payload.ifi_seleccionada}.")
         
         plazo_anios = payload.plazo_meses / 12
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"El plazo de {payload.plazo_meses} meses ({plazo_anios:.1f} años) está fuera del rango "
-                    f"de {payload.ifi_seleccionada} ({ifi_row.plazo_min_anios} – {ifi_row.plazo_max_anios} años)."
-                )
-            )
+            raise HTTPException(status_code=400, detail=f"El plazo está fuera del rango de {payload.ifi_seleccionada}.")
         
         tiene_mancomunado = False
         if role == "Cliente":
             client_obj = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
             if client_obj: tiene_mancomunado = client_obj.tiene_deudor_solidario
         
-        payload.seguro_desgravamen = ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual
+        # 🚨 SOLUCIÓN DEFINITIVA APLICADA AQUÍ: Extraemos el seguro y lo dividimos / 100
+        tasa_seguro_bd = ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual
+        payload.seguro_desgravamen = float(tasa_seguro_bd) / 100
 
     else:
-        # ── MODO MANUAL ──
         if payload.tipo_tasa == "Efectiva":
             payload.capitalizacion = "Mensual"
+    # ──────────────────────────────────────────────────
 
-    # ───────────────────────────────────────────────────────────────────────────
-
-    # Tasas (Precisión 8,6)
     tasa_anual_dec = Decimal(str(payload.tasa_anual)) / Decimal("100")
     if payload.tipo_tasa == "Efectiva":
         tea = tasa_anual_dec
-    else: # Nominal
+    else: 
         m = Decimal("12") / Decimal(str({"Mensual": 1, "Bimestral": 2, "Trimestral": 3}.get(payload.capitalizacion, 1)))
         tea = (1 + tasa_anual_dec / m)**m - 1
     
     tem = (1 + tea)**(Decimal("1")/Decimal("12")) - 1
 
-    # Factor Francés Inicial
     n_total = payload.plazo_meses
     m_gracia = payload.meses_gracia
     n_reales = n_total - m_gracia
@@ -324,45 +266,40 @@ def run_simulation(
     factor = (tem * (1 + tem) ** n_reales) / ((1 + tem) ** n_reales - 1) if tem > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
-    # 5. Cronograma detallado (Actualizado con Gracia Total y Parcial)
+    # 5. Cronograma detallado
     detalles_db = []
     saldo = monto_financiar
     seguro_tasa = Decimal(str(payload.seguro_desgravamen))
     fecha_base = payload.fecha_inicio_prestamo or date.today()
     
-    flujos_caja = [float(monto_financiar)] # Periodo 0
+    flujos_caja = [float(monto_financiar)] 
     total_int, total_seg = Decimal("0"), Decimal("0")
-
     for i in range(1, n_total + 1):
         saldo_anterior = saldo
-        
         int_periodo = saldo_anterior * tem
         seguro_periodo = saldo_anterior * seguro_tasa
+        interes_cap = Decimal("0") # Inicializamos el interés capitalizado en 0
         
         if i <= m_gracia:
             if payload.tipo_gracia == "Total":
-                # Gracia Total: Capitaliza intereses, no paga cuota.
                 amort_periodo = -int_periodo 
                 cuota_t = Decimal("0")
                 seguro_periodo = Decimal("0") 
+                interes_cap = int_periodo # Aquí sí hay interés capitalizado
                 saldo = saldo_anterior + int_periodo
                 
-                # En el último mes de gracia, recalculamos el factor y la cuota fija base al nuevo saldo inflado
                 if i == m_gracia: 
                     nuevo_factor = (tem * (1 + tem) ** n_reales) / ((1 + tem) ** n_reales - 1) if tem > 0 else (Decimal("1")/Decimal(str(n_reales)))
                     cuota_base = saldo * nuevo_factor
             else: 
-                # Gracia Parcial: Paga interés y seguro, amortización cero.
                 amort_periodo = Decimal("0")
                 cuota_t = int_periodo + seguro_periodo
                 saldo = saldo_anterior
         else:
-            # Periodo Regular (Sistema Francés)
             amort_periodo = cuota_base - int_periodo
             cuota_t = cuota_base + seguro_periodo
             saldo = saldo_anterior - amort_periodo
             
-            # Ajuste de céntimos en la última cuota
             if i == n_total and saldo != Decimal("0"):
                 cuota_t += saldo
                 amort_periodo += saldo
@@ -372,27 +309,32 @@ def run_simulation(
         total_seg += seguro_periodo
         flujos_caja.append(-float(cuota_t))
 
-        detalles_db.append(SimulationDetail(
+        # 1. Creamos el objeto SOLO con las columnas reales de PostgreSQL
+        detalle = SimulationDetail(
             numero_cuota=i,
-            # saldo_inicio=d2(saldo_anterior), 
             interes=d2(int_periodo),
-            # interes_capitalizado=d2(interes_capitalizado),
             seguro=d2(seguro_periodo),
             amortizacion=d2(amort_periodo), 
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
-            # flujo_caja=d2(-cuota_t), 
             fecha_vencimiento=date(fecha_base.year + (fecha_base.month + i - 1) // 12, (fecha_base.month + i - 1) % 12 + 1, min(fecha_base.day, 28))
-        ))
+        )
+        
+        # 2. 🚨 TRUCO NINJA: Le inyectamos "al vuelo" los datos que tu Schema de Pydantic exige.
+        # Al no estar en el constructor, la BD los ignora, pero FastAPI sí los envía a React.
+        detalle.saldo_inicio = d2(saldo_anterior)
+        detalle.interes_capitalizado = d2(interes_cap)
+        detalle.flujo_caja = d2(-cuota_t)
 
-    # Affordability Ratio (IFM: Ingreso Familiar Mensual)
+        # 3. Lo agregamos a la lista
+        detalles_db.append(detalle)
+
     max_cuota = max(d.cuota_total for d in detalles_db)
     ifm = Decimal("0")
     
-    # Obtener entidad para IFM
     if role == "Cliente":
         entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-    else: # Asesor
+    else: 
         entity = db.query(Prospect).filter(Prospect.codigo_prospecto == payload.codigo_prospecto).first()
     
     if entity:
@@ -400,8 +342,6 @@ def run_simulation(
 
     ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("101.0") 
     
-    # Límite del Fondo MiVivienda: ratio cuota/ingreso no debe superar 40%
-    # para viviendas de hasta S/ 205k. Para montos mayores, se es más flexible.
     limite_ratio = Decimal("40.00") if pv_pen <= Decimal("205000.00") else Decimal("50.00")
     
     if ratio > limite_ratio:
@@ -413,22 +353,22 @@ def run_simulation(
             )
         )
 
-    # Financieros
     try:
         tir = npf.irr(flujos_caja)
         tcea = ((1 + tir) ** 12) - 1
         van = npf.npv(float(tem), flujos_caja)
     except: tir, tcea, van = 0, 0, 0
 
-    # 6. Persistencia
+    # 6. Persistencia (Ya con fecha_inicio_prestamo omitido en la DB)
     try:
         new_sim = Simulation(
+            fecha_inicio_prestamo=fecha_base,
             cuota_inicial=payload.cuota_inicial, gastos_cierre=payload.gastos_cierre,
             tipo_bbp=payload.tipo_bbp, bono_bbp=bono_total,
             ifi_seleccionada=payload.ifi_seleccionada, tipo_tasa=payload.tipo_tasa,
             tasa_anual=payload.tasa_anual, plazo_meses=payload.plazo_meses,
             tipo_gracia=payload.tipo_gracia, meses_gracia=payload.meses_gracia,
-            seguro_desgravamen=payload.seguro_desgravamen, fecha_inicio_prestamo=fecha_base,
+            seguro_desgravamen=payload.seguro_desgravamen, 
             codigo_unidad=payload.codigo_unidad, codigo_cliente=payload.codigo_cliente,
             codigo_prospecto=payload.codigo_prospecto, codigo_asesor=payload.codigo_asesor
         )
