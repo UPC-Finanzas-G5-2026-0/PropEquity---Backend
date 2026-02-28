@@ -240,12 +240,10 @@ def get_units(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Admin/Asesor ven todas. Cliente solo las suyas."""
-    role = current_user.rol_rel.tipo_rol
-    if role == "Cliente":
-        return db.query(Unit).filter(Unit.codigo_cliente == current_user.codigo_usuario).all()
-    elif role == "Asesor":
-        return db.query(Unit).filter(Unit.codigo_asesor == current_user.codigo_usuario).all()
+    """
+    Administradores, Asesores y Clientes pueden ver el catálogo de unidades.
+    (El frontend se encarga de mostrar solo las 'Activas' en el catálogo).
+    """
     return db.query(Unit).all()
 
 @router.get("/client/{codigo_cliente}", response_model=list[UnitResponse])
