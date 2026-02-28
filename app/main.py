@@ -8,6 +8,7 @@ from .api.v1 import simulator, auth, clients, units, prospects
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from fastapi.encoders import jsonable_encoder # 🚨 NUEVO: Importamos el limpiador de JSON
 
 print(f"DEBUG: Engine URL = {engine.url}")
 
@@ -25,7 +26,6 @@ app = FastAPI(
 app.router.redirect_slashes = False
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,9 +47,13 @@ app.add_middleware(
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # 🚨 NUEVO: Envolvemos el contenido en jsonable_encoder para evitar el choque
     return JSONResponse(
         status_code=422,
-        content={"message": "Error de validación de datos", "detail": exc.errors()},
+        content=jsonable_encoder({
+            "message": "Error de validación de datos", 
+            "detail": exc.errors()
+        }),
         headers={
             "Access-Control-Allow-Origin": "http://localhost:3000",
             "Access-Control-Allow-Credentials": "true",
