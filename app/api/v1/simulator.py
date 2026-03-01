@@ -48,11 +48,30 @@ def get_bono_info(db: Session, precio_venta: Decimal, tipo_bbp: str, modalidad: 
     
     return {"rango": bono_row.rango, "base": base, "integrador": integrador}
 
-
 def get_capitalizacion_factor(capitalizacion: str) -> int:
     """Retorna el número de meses de capitalización para tasa nominal."""
     return {"Mensual": 1, "Bimestral": 2, "Trimestral": 3}.get(capitalizacion, 1)
 
+# 🚨 NUEVO ENDPOINT: Búsqueda segura del IFM para el Frontend
+@router.get("/check-income/{person_id}")
+def check_income(person_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Busca primero como prospecto
+    prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == person_id).first()
+    if prospect:
+        return {
+            "type": "Prospecto", 
+            "ifm": float(prospect.ingreso_mensual or 0) + float(getattr(prospect, 'ingreso_conyuge', 0))
+        }
+    
+    # Si no, busca como cliente
+    client = db.query(Client).filter(Client.codigo_cliente == person_id).first()
+    if client:
+        return {
+            "type": "Cliente", 
+            "ifm": float(client.ingreso_mensual or 0) + float(getattr(client, 'ingreso_conyuge', 0))
+        }
+        
+    raise HTTPException(status_code=404, detail="ID no encontrado en Base de Datos")
 
 @router.get("/ifis-disponibles")
 def get_ifis_disponibles(
@@ -101,18 +120,45 @@ def run_simulation(
         modalidad = mod.nombre_modalidad if mod else "Compra"
 
     role = current_user.rol_rel.tipo_rol
-    # 2. Asignar identificadores por rol
+    
+    # 2. Asignar identificadores y buscar entidad para IFM
+    entity = None
+    ifm = Decimal("0")
+
     if role == "Cliente":
         if payload.codigo_cliente and payload.codigo_cliente != current_user.codigo_usuario:
             raise HTTPException(status_code=403, detail="No puedes crear simulaciones en nombre de otro cliente.")
         payload.codigo_cliente = current_user.codigo_usuario
         payload.codigo_asesor = None
         payload.codigo_prospecto = None
+        
+        entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
+        if entity: 
+            ifm = Decimal(str(entity.ingreso_mensual or 0)) + Decimal(str(getattr(entity, 'ingreso_conyuge', 0)))
+
     elif role == "Asesor":
         payload.codigo_asesor = current_user.codigo_usuario
-        payload.codigo_cliente = None
-        if payload.codigo_prospecto is None:
-            raise HTTPException(status_code=400, detail="El asesor debe indicar el codigo_prospecto para simular.")
+        input_id = payload.codigo_prospecto
+        
+        if not input_id:
+            raise HTTPException(status_code=400, detail="El asesor debe indicar el ID del prospecto/cliente.")
+
+        # 🚨 SOLUCIÓN: Buscar inteligentemente si el ID pertenece a Prospect o Client
+        is_prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == input_id).first()
+        is_client = db.query(Client).filter(Client.codigo_cliente == input_id).first()
+        
+        if is_prospect:
+            payload.codigo_prospecto = input_id
+            payload.codigo_cliente = None
+            entity = is_prospect
+        elif is_client:
+            payload.codigo_cliente = input_id
+            payload.codigo_prospecto = None  # Esto evita que PostgreSQL explote
+            entity = is_client
+        else:
+            raise HTTPException(status_code=404, detail=f"El ID {input_id} no existe en la base de datos.")
+
+        ifm = Decimal(str(entity.ingreso_mensual or 0)) + Decimal(str(getattr(entity, 'ingreso_conyuge', 0)))
 
     # ═══ VALIDACIONES MOVIDAS DEL SCHEMA PARA EVITAR ERRORES 500 ═══
     TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
@@ -175,22 +221,18 @@ def run_simulation(
         if tipo_v and tipo_v.nombre_tipo_venta == "Segunda venta":
             raise HTTPException(status_code=400, detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta.")
 
-    if payload.tipo_bbp != "Ninguno":
-        entity = None
-        if role == "Cliente":
-            entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-        elif role == "Asesor" and payload.codigo_prospecto:
-            entity = db.query(Prospect).filter(Prospect.codigo_prospecto == payload.codigo_prospecto).first()
-        
-        if entity:
-            if entity.es_propietario_vivienda or entity.hijos_menores_propietarios:
-                raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya son propietarios de otra vivienda.")
-            if entity.recibio_apoyo_estatal:
-                raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya recibió apoyo habitacional del Estado.")
-            if entity.cantidad_creditos_fmv >= 2:
-                raise HTTPException(status_code=400, detail="Ha alcanzado el límite máximo de 2 créditos MiVivienda.")
-            if entity.tiene_credito_fmv_activo:
-                raise HTTPException(status_code=400, detail="Tiene un Crédito MiVivienda ACTIVO.")
+    # Validaciones exclusivas con control de atributos (hasattr)
+    if payload.tipo_bbp != "Ninguno" and entity:
+        if hasattr(entity, 'es_propietario_vivienda') and entity.es_propietario_vivienda:
+            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya son propietarios de otra vivienda.")
+        if hasattr(entity, 'hijos_menores_propietarios') and entity.hijos_menores_propietarios:
+            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si tienen hijos menores propietarios.")
+        if hasattr(entity, 'recibio_apoyo_estatal') and entity.recibio_apoyo_estatal:
+            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya recibió apoyo habitacional del Estado.")
+        if hasattr(entity, 'cantidad_creditos_fmv') and entity.cantidad_creditos_fmv >= 2:
+            raise HTTPException(status_code=400, detail="Ha alcanzado el límite máximo de 2 créditos MiVivienda.")
+        if hasattr(entity, 'tiene_credito_fmv_activo') and entity.tiene_credito_fmv_activo:
+            raise HTTPException(status_code=400, detail="Tiene un Crédito MiVivienda ACTIVO.")
 
     # 4. Gastos cierre y Cuota Inicial
     gastos_cierre = Decimal(str(payload.gastos_cierre))
@@ -236,14 +278,15 @@ def run_simulation(
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
             raise HTTPException(status_code=400, detail=f"El plazo está fuera del rango de {payload.ifi_seleccionada}.")
         
-        tiene_mancomunado = False
-        if role == "Cliente":
-            client_obj = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-            if client_obj: tiene_mancomunado = client_obj.tiene_deudor_solidario
+        tiene_mancomunado = getattr(entity, 'tiene_deudor_solidario', False) if entity else False
         
-        # 🚨 SOLUCIÓN DEFINITIVA APLICADA AQUÍ: Extraemos el seguro y lo dividimos / 100
-        tasa_seguro_bd = ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual
-        payload.seguro_desgravamen = float(tasa_seguro_bd) / 100
+        # 🚨 SOLUCIÓN: Normalizador matemático para el seguro de la BD
+        tasa_seguro_bd = float(ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual)
+        # Si la tasa está guardada como 2.8 o 0.028 (porcentajes), la forzamos al decimal real 0.00028
+        while tasa_seguro_bd > 0.01:
+            tasa_seguro_bd = tasa_seguro_bd / 100
+        
+        payload.seguro_desgravamen = tasa_seguro_bd
 
     else:
         if payload.tipo_tasa == "Efectiva":
@@ -278,14 +321,14 @@ def run_simulation(
         saldo_anterior = saldo
         int_periodo = saldo_anterior * tem
         seguro_periodo = saldo_anterior * seguro_tasa
-        interes_cap = Decimal("0") # Inicializamos el interés capitalizado en 0
+        interes_cap = Decimal("0") 
         
         if i <= m_gracia:
             if payload.tipo_gracia == "Total":
                 amort_periodo = -int_periodo 
                 cuota_t = Decimal("0")
                 seguro_periodo = Decimal("0") 
-                interes_cap = int_periodo # Aquí sí hay interés capitalizado
+                interes_cap = int_periodo 
                 saldo = saldo_anterior + int_periodo
                 
                 if i == m_gracia: 
@@ -309,7 +352,6 @@ def run_simulation(
         total_seg += seguro_periodo
         flujos_caja.append(-float(cuota_t))
 
-        # 1. Creamos el objeto SOLO con las columnas reales de PostgreSQL
         detalle = SimulationDetail(
             numero_cuota=i,
             interes=d2(int_periodo),
@@ -320,26 +362,15 @@ def run_simulation(
             fecha_vencimiento=date(fecha_base.year + (fecha_base.month + i - 1) // 12, (fecha_base.month + i - 1) % 12 + 1, min(fecha_base.day, 28))
         )
         
-        # 2. 🚨 TRUCO NINJA: Le inyectamos "al vuelo" los datos que tu Schema de Pydantic exige.
-        # Al no estar en el constructor, la BD los ignora, pero FastAPI sí los envía a React.
         detalle.saldo_inicio = d2(saldo_anterior)
         detalle.interes_capitalizado = d2(interes_cap)
         detalle.flujo_caja = d2(-cuota_t)
 
-        # 3. Lo agregamos a la lista
         detalles_db.append(detalle)
 
     max_cuota = max(d.cuota_total for d in detalles_db)
-    ifm = Decimal("0")
     
-    if role == "Cliente":
-        entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-    else: 
-        entity = db.query(Prospect).filter(Prospect.codigo_prospecto == payload.codigo_prospecto).first()
-    
-    if entity:
-        ifm = Decimal(str(entity.ingreso_mensual)) + Decimal(str(entity.ingreso_conyuge))
-
+    # El IFM ya lo calculamos inteligentemente al principio de la función, solo lo evaluamos aquí
     ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("101.0") 
     
     limite_ratio = Decimal("40.00") if pv_pen <= Decimal("205000.00") else Decimal("50.00")
@@ -359,7 +390,6 @@ def run_simulation(
         van = npf.npv(float(tem), flujos_caja)
     except: tir, tcea, van = 0, 0, 0
 
-    # 6. Persistencia (Ya con fecha_inicio_prestamo omitido en la DB)
     try:
         new_sim = Simulation(
             fecha_inicio_prestamo=fecha_base,
