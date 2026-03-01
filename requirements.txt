@@ -6,3 +6,8 @@ python-dotenv
 passlib[bcrypt]
 python-jose[cryptography]
 numpy-financial
+psycopg2-binary
+pandas
+openpyxl
+reportlab
+python-multipart
