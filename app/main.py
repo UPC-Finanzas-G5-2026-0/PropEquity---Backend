@@ -47,6 +47,7 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "http://127.0.0.1:3003",
         "https://propequity.vercel.app",
+        "https://propequity-frontend-8ht9mqt3t-renxolls-projects.vercel.app",
         # Agrega aquí tu URL final de Vercel si es distinta
     ],
     allow_credentials=True,
