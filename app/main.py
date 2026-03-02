@@ -44,17 +44,14 @@ app.add_middleware(
         "http://localhost:3001",
         "http://localhost:3003",
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:3003",
-        "https://propequity.vercel.app",
-        "https://propequity-frontend-8ht9mqt3t-renxolls-projects.vercel.app",
-        # Agrega aquí tu URL final de Vercel si es distinta
+        "https://propequity.vercel.app", 
     ],
+    # Acepta cualquier URL dinámica de previsualización de Vercel
+    allow_origin_regex=r"https://.*\.vercel\.app", 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # --- Manejadores de Excepciones (Exception Handlers) ---
 
 @app.exception_handler(RequestValidationError)
