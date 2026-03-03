@@ -1,32 +1,42 @@
+import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .database import engine, Base, db_url
-from . import models 
-from .core.config import settings
-from .api.v1 import simulator, auth, clients, units, prospects
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy.orm import configure_mappers
 
-print(f"DEBUG: Engine URL = {engine.url}")
+# Importaciones locales
+from .database import engine, Base
+from . import models 
+from .api.v1 import simulator, auth, clients, units, prospects
+
+# 🚨 SEGURIDAD PARA RENDER: Crear carpeta 'uploads' si no existe.
+# Sin esto, app.mount fallará si la carpeta no está en el repo de Git.
+if not os.path.exists("uploads"):
+    os.makedirs("uploads")
 
 # Crear tablas e inicializar mappers
-Base.metadata.create_all(bind=engine)
-
-from sqlalchemy.orm import configure_mappers
-configure_mappers()
+try:
+    Base.metadata.create_all(bind=engine)
+    configure_mappers()
+except Exception as e:
+    print(f"⚠️ Alerta de Base de Datos: {e}")
 
 app = FastAPI(
     title="PropEquity API",
     description="API para gestión de créditos hipotecarios y simulaciones financieras.",
     version="1.0.0"
 )
+
+# Evitar problemas de redirección con barras diagonales (trailing slashes)
 app.router.redirect_slashes = False
 
+# Montar archivos estáticos
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-
+# Configuración de CORS optimizada
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -34,20 +44,19 @@ app.add_middleware(
         "http://localhost:3001",
         "http://localhost:3003",
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:3003",
-        "http://0.0.0.0:3000",
-        "https://propequity.vercel.app"
+        "https://propequity.vercel.app", 
     ],
+    # Acepta cualquier URL dinámica de previsualización de Vercel
+    allow_origin_regex=r"https://.*\.vercel\.app", 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+# --- Manejadores de Excepciones (Exception Handlers) ---
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # Convert all error details to strings to avoid serialization issues
+    # Convertir todos los detalles de error a strings para evitar problemas de serialización
     def stringify_exceptions(obj):
         if isinstance(obj, Exception):
             return str(obj)
@@ -57,12 +66,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             return [stringify_exceptions(v) for v in obj]
         else:
             return obj
+            
     error_details = stringify_exceptions(exc.errors())
     return JSONResponse(
         status_code=422,
         content={"message": "Error de validación de datos", "detail": error_details},
         headers={
-            "Access-Control-Allow-Origin": "http://localhost:3000",
+            "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "*"
@@ -71,57 +81,34 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
-    import traceback
-    error_detail = str(exc) if exc else "Error de validación"
-    
+    """Maneja errores de lógica de negocio (ValueErrors)"""
     return JSONResponse(
         status_code=422,
-        content={"message": "Error de validación", "detail": error_detail},
-        headers={
-            "Access-Control-Allow-Origin": "http://localhost:3000",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
+        content={
+            "message": "Error de validación", 
+            "detail": str(exc)
         }
     )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    import traceback
-    
-    if isinstance(exc, ValueError):
-        return JSONResponse(
-            status_code=422,
-            content={"message": "Error de validación", "detail": str(exc)},
-            headers={
-                "Access-Control-Allow-Origin": "http://localhost:3000",
-                "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*"
-            }
-        )
-    
-    error_detail = str(exc) if exc else "Error interno del servidor"
-    
+    """Manejador global para evitar que la API devuelva errores no controlados"""
     return JSONResponse(
         status_code=500,
-        content={"message": "Internal Server Error", "detail": error_detail},
-        headers={
-            "Access-Control-Allow-Origin": "http://localhost:3000",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
+        content={
+            "message": "Internal Server Error", 
+            "detail": str(exc) if os.getenv("DEBUG") == "true" else "Ocurrió un error inesperado en el servidor."
         }
     )
 
-app.include_router(auth.router, prefix="/api/v1/auth")
+# --- Inclusión de Routers ---
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
 
 # Endpoint público para TEM, sin autenticación
 @app.get("/api/v1/simulator/tem")
 def calcular_tem(tea: float):
     """
     Calcula la Tasa Efectiva Mensual (TEM) a partir de la Tasa Efectiva Anual (TEA).
-    Parámetro: tea (float) en porcentaje, por ejemplo 12 para 12% anual.
     """
     tem = (1 + (tea / 100)) ** (1/12) - 1
     return {"tem": round(tem, 6)}
@@ -136,5 +123,6 @@ def read_root():
     return {
         "message": "Bienvenido a PropEquity API - Gestión Inmobiliaria",
         "docs": "/docs",
-        "status": "Operational"
+        "status": "Operational",
+        "environment": "Production" if os.getenv("RENDER") else "Development"
     }

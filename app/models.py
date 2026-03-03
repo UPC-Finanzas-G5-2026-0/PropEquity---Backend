@@ -258,6 +258,7 @@ class Simulation(Base):
     fecha_simulacion = Column(Date, default=date.today, nullable=False)
     fecha_inicio_prestamo = Column(Date, nullable=True)
     cuota_inicial = Column(Numeric(12, 2), default=0.00)
+    fecha_inicio_prestamo = Column(Date, nullable=False)
 
     # Gastos iniciales (Desglose)
     coste_notarial = Column(Numeric(12, 2), default=Decimal("0.00"))

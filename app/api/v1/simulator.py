@@ -96,11 +96,30 @@ def get_bono_info(db: Session, precio_venta: Decimal, tipo_bbp: str, modalidad: 
     
     return {"rango": bono_row.rango, "base": base, "integrador": integrador}
 
-
 def get_capitalizacion_factor(capitalizacion: str) -> int:
     """Retorna el número de meses de capitalización para tasa nominal."""
     return {"Mensual": 1, "Bimestral": 2, "Trimestral": 3}.get(capitalizacion, 1)
 
+# 🚨 NUEVO ENDPOINT: Búsqueda segura del IFM para el Frontend
+@router.get("/check-income/{person_id}")
+def check_income(person_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Busca primero como prospecto
+    prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == person_id).first()
+    if prospect:
+        return {
+            "type": "Prospecto", 
+            "ifm": float(prospect.ingreso_mensual or 0) + float(getattr(prospect, 'ingreso_conyuge', 0))
+        }
+    
+    # Si no, busca como cliente
+    client = db.query(Client).filter(Client.codigo_cliente == person_id).first()
+    if client:
+        return {
+            "type": "Cliente", 
+            "ifm": float(client.ingreso_mensual or 0) + float(getattr(client, 'ingreso_conyuge', 0))
+        }
+        
+    raise HTTPException(status_code=404, detail="ID no encontrado en Base de Datos")
 
 @router.get("/ifis-disponibles")
 def get_ifis_disponibles(
@@ -110,7 +129,6 @@ def get_ifis_disponibles(
 ):
     """
     Devuelve las IFIs disponibles para un monto de financiamiento dado.
-    Incluye rango de TEA y tasas de seguro por tipo (individual/mancomunado).
     """
     from decimal import Decimal
     monto_dec = Decimal(str(monto))
@@ -152,62 +170,83 @@ def run_simulation(
         modalidad = mod.nombre_modalidad if mod else "Compra"
 
     role = current_user.rol_rel.tipo_rol
-    # 2. Asignar identificadores por rol
+    
+    # 2. Asignar identificadores y buscar entidad para IFM
+    entity = None
+    ifm = Decimal("0")
+
     if role == "Cliente":
         if payload.codigo_cliente and payload.codigo_cliente != current_user.codigo_usuario:
             raise HTTPException(status_code=403, detail="No puedes crear simulaciones en nombre de otro cliente.")
         payload.codigo_cliente = current_user.codigo_usuario
         payload.codigo_asesor = None
         payload.codigo_prospecto = None
+        
+        entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
+        if entity: 
+            ifm = Decimal(str(entity.ingreso_mensual or 0)) + Decimal(str(getattr(entity, 'ingreso_conyuge', 0)))
+
     elif role == "Asesor":
         payload.codigo_asesor = current_user.codigo_usuario
-        payload.codigo_cliente = None
-        if payload.codigo_prospecto is None:
-            raise HTTPException(status_code=400, detail="El asesor debe indicar el codigo_prospecto para simular.")
+        input_id = payload.codigo_prospecto
+        
+        if not input_id:
+            raise HTTPException(status_code=400, detail="El asesor debe indicar el ID del prospecto/cliente.")
+
+        # 🚨 SOLUCIÓN: Buscar inteligentemente si el ID pertenece a Prospect o Client
+        is_prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == input_id).first()
+        is_client = db.query(Client).filter(Client.codigo_cliente == input_id).first()
+        
+        if is_prospect:
+            payload.codigo_prospecto = input_id
+            payload.codigo_cliente = None
+            entity = is_prospect
+        elif is_client:
+            payload.codigo_cliente = input_id
+            payload.codigo_prospecto = None  # Esto evita que PostgreSQL explote
+            entity = is_client
+        else:
+            raise HTTPException(status_code=404, detail=f"El ID {input_id} no existe en la base de datos.")
+
+        ifm = Decimal(str(entity.ingreso_mensual or 0)) + Decimal(str(getattr(entity, 'ingreso_conyuge', 0)))
 
     # ═══ VALIDACIONES MOVIDAS DEL SCHEMA PARA EVITAR ERRORES 500 ═══
-    
-    # Validar tipo BBP
     TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
     if payload.tipo_bbp not in TIPOS_BBP:
         raise HTTPException(status_code=422, detail=f"tipo_bbp debe ser uno de: {TIPOS_BBP}")
     
-    # Validar BBP Integrador
     CATEGORIAS_INTEGRADOR = ["Menores ingresos", "Adulto mayor", "Discapacidad", "Desplazado", "Migrante retornado"]
     if "Integrador" in payload.tipo_bbp:
         if not payload.categoria_integrador:
             raise HTTPException(status_code=422, detail="categoria_integrador es requerida cuando tipo_bbp es Integrador.")
         if payload.categoria_integrador not in CATEGORIAS_INTEGRADOR:
             raise HTTPException(status_code=422, detail=f"categoria_integrador debe ser una de: {CATEGORIAS_INTEGRADOR}")
-        # ingreso_maximo solo aplica si categoria = "Menores ingresos"
         if payload.categoria_integrador == "Menores ingresos":
             if payload.ingreso_maximo_integrador is None:
                 raise HTTPException(status_code=422, detail="ingreso_maximo_integrador es requerido para 'Menores ingresos'.")
             if payload.ingreso_maximo_integrador > 4746.00:
                 raise HTTPException(status_code=422, detail="ingreso_maximo_integrador no puede superar S/ 4,746.00")
     else:
-        # Si no es integrador, limpiar campos integrador
         payload.categoria_integrador = None
         payload.ingreso_maximo_integrador = None
 
-    # Validar período de gracia
     if payload.meses_gracia >= payload.plazo_meses:
         raise HTTPException(status_code=422, detail="meses_gracia debe ser menor que plazo_meses.")
 
+    if payload.tipo_gracia == "Total" and payload.meses_gracia > 6:
+        raise HTTPException(status_code=422, detail="El periodo de gracia total no puede superar los 6 meses.")
     # ═══ FIN VALIDACIONES MOVIDAS ═══
 
-    # 3. Conversión de Moneda y Cálculo de BBP (R1-R5)
+    # 3. Conversión de Moneda y Cálculo de BBP
     pv = Decimal(str(unit.precio_venta))
     tipo_cambio = Decimal(str(payload.tipo_cambio))
 
-    # El BBP siempre se valida en Soles (PEN) según reglamento
     pv_pen = pv
     if unit.moneda_rel.simbolo_moneda == "USD":
         pv_pen = pv * tipo_cambio
 
     bono_info = get_bono_info(db, pv_pen, payload.tipo_bbp, modalidad)
     rango = bono_info["rango"]
-
     # Los bonos en la DB están en PEN. Si la unidad es USD, convertimos el bono a USD.
     bono_base = bono_info["base"]
     bono_integrador = bono_info["integrador"]
@@ -219,16 +258,14 @@ def run_simulation(
 
     # Cálculo del préstamo (monto a financiar) antes de cualquier validación que lo use
     precio_neto = pv - bono_total
+    
     # Cálculo de Gastos Iniciales 
     # Prioridad: 1. Campos desglosados, 2. Campo consolidado gastos_iniciales
     gastos_sum = Decimal(str(payload.coste_notarial or 0)) + Decimal(str(payload.coste_registral or 0)) + \
                  Decimal(str(payload.tasacion or 0)) + Decimal(str(payload.comision_estudio or 0)) + \
                  Decimal(str(payload.comision_activacion or 0))
     
-    # Si la suma es 0, intentamos usar el campo consolidado
     gastos_iniciales_dec = gastos_sum if gastos_sum > 0 else Decimal(str(payload.gastos_iniciales or 0))
-    
-    # Aseguramos que el payload tenga el valor final para persistencia
     payload.gastos_iniciales = float(gastos_iniciales_dec)
 
     # 🚨 VALIDACIÓN: Gastos iniciales no pueden superar el 5% del precio de venta 🚨
@@ -240,9 +277,14 @@ def run_simulation(
         )
 
     cuota_inicial_dec = Decimal(str(payload.cuota_inicial))
+    porcentaje_inicial = (cuota_inicial_dec / pv) * 100
+    min_porcentaje = Decimal("7.5") if modalidad in ["Construccion", "Mejoramiento"] else Decimal("10.0")
+
+    if porcentaje_inicial < min_porcentaje:
+        raise HTTPException(status_code=400, detail=f"La cuota inicial es insuficiente. Se requiere un mínimo del {float(min_porcentaje)}%.")
     
     # Saldo del inmueble solamente (para tracking interno)
-    saldo_inmueble = pv - cuota_inicial_dec - bono_total
+    saldo_inmueble = precio_neto - cuota_inicial_dec
     
     # MONTO TOTAL A FINANCIAR (Capital del Préstamo)
     monto_financiar = saldo_inmueble + gastos_iniciales_dec
@@ -251,7 +293,6 @@ def run_simulation(
     if payload.tipo_bbp != "Ninguno" and not payload.ifi_seleccionada:
         raise HTTPException(status_code=400, detail="El BBP solo aplica con el Crédito MiVivienda a través de una IFI.")
 
-    # Vivienda Sostenible vs Tradicional: Exclusividad
     if unit.es_sostenible:
         if payload.tipo_bbp in ["Tradicional", "Integrador Tradicional"]:
             raise HTTPException(status_code=400, detail="Vivienda Sostenible solo acepta bonos Sostenibles.")
@@ -259,58 +300,24 @@ def run_simulation(
         if payload.tipo_bbp in ["Sostenible", "Integrador Sostenible"]:
             raise HTTPException(status_code=400, detail="Vivienda Tradicional solo acepta bonos Tradicionales.")
 
-    # 🚨 RESTRICCIÓN NCMV: Solo Primera Venta 🚨
     if payload.tipo_bbp != "Ninguno":
         tipo_v = db.query(TipoVenta).filter(TipoVenta.codigo_tipo_venta == unit.codigo_tipo_venta).first()
         if tipo_v and tipo_v.nombre_tipo_venta == "Segunda venta":
-            raise HTTPException(
-                status_code=400,
-                detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta (Nuevas). Las viviendas de segunda venta no califican."
-            )
+            raise HTTPException(status_code=400, detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta.")
 
     # 🚨 RESTRICCIÓN MIVIVIENDA: Propiedad y Apoyo Estatal Previo 🚨
-    if payload.tipo_bbp != "Ninguno":
-        # Obtener entidad a validar (Cliente registrado o Prospecto del asesor)
-        entidad = None
-        if role == "Cliente":
-            entidad = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-        elif role == "Asesor" and payload.codigo_prospecto:
-            from app.models import Prospect
-            entidad = db.query(Prospect).filter(Prospect.codigo_prospecto == payload.codigo_prospecto).first()
+    if payload.tipo_bbp != "Ninguno" and entity:
+        if hasattr(entity, 'es_propietario_vivienda') and entity.es_propietario_vivienda:
+            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya son propietarios de otra vivienda.")
+        if hasattr(entity, 'hijos_menores_propietarios') and entity.hijos_menores_propietarios:
+            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si tienen hijos menores propietarios.")
+        if hasattr(entity, 'recibio_apoyo_estatal') and entity.recibio_apoyo_estatal:
+            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya recibió apoyo habitacional del Estado.")
+        if hasattr(entity, 'cantidad_creditos_fmv') and entity.cantidad_creditos_fmv >= 2:
+            raise HTTPException(status_code=400, detail="Ha alcanzado el límite máximo de 2 créditos MiVivienda.")
+        if hasattr(entity, 'tiene_credito_fmv_activo') and entity.tiene_credito_fmv_activo:
+            raise HTTPException(status_code=400, detail="Tiene un Crédito MiVivienda ACTIVO.")
 
-        if entidad:
-            # R-FMV1: El solicitante NO debe ser propietario de vivienda
-            if entidad.es_propietario_vivienda:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El solicitante ya es propietario de una vivienda. No califica para el Bono de Buen Pagador (BBP) del Fondo MiVivienda."
-                )
-            # R-FMV2: El cónyuge/conviviente NO debe ser propietario
-            if entidad.conyuge_propietario:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El cónyuge o conviviente ya es propietario de una vivienda. No califica para el BBP del Fondo MiVivienda."
-                )
-            # R-FMV3: Los hijos menores NO deben ser propietarios
-            if entidad.hijos_menores_propietarios:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Uno o más hijos menores de edad figura como propietario de vivienda. No califica para el BBP."
-                )
-            # R-FMV4: No haber recibido apoyo habitacional estatal previo
-            if entidad.recibio_apoyo_estatal:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El solicitante ya recibió apoyo habitacional del Estado previamente. No califica para el Crédito MiVivienda."
-                )
-            # R-FMV5: No tener crédito FMV activo en este momento
-            if entidad.tiene_credito_fmv_activo:
-                raise HTTPException(
-                    status_code=400,
-                    detail="El solicitante tiene un Crédito MiVivienda activo. No puede acceder a un nuevo crédito del Fondo MiVivienda."
-                )
-
-    # Restricción LTV 90%
     if modalidad not in ["Construccion", "Mejoramiento"]:
         max_financiar = pv * Decimal("0.90")
         if monto_financiar > max_financiar:
@@ -319,10 +326,8 @@ def run_simulation(
     if monto_financiar <= 0:
         raise HTTPException(status_code=400, detail="El monto a financiar debe ser mayor a 0.")
 
-    # ─── MODO IFI vs MODO MANUAL (Precarga y Bloqueos) ─────────────────────────
+    # ─── MODO IFI vs MODO MANUAL ─────────────────────────
     if payload.ifi_seleccionada:
-        # ── MODO IFI ──
-        # tipo_tasa y tasa_anual se precargan/bloquean según reglas del banco
         ifi_row = db.query(CreditoIFI).filter(
             CreditoIFI.nombre_ifi == payload.ifi_seleccionada,
             CreditoIFI.monto_min <= monto_financiar,
@@ -330,50 +335,33 @@ def run_simulation(
         ).first()
 
         if not ifi_row:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Monto de S/ {float(monto_financiar):,.2f} fuera de rango para {payload.ifi_seleccionada}."
-            )
+            raise HTTPException(status_code=400, detail=f"Monto fuera de rango para {payload.ifi_seleccionada}.")
 
-        # BLOQUEO: Con IFI, la tasa SIEMPRE es Efectiva (TEA)
         payload.tipo_tasa = "Efectiva"
-        payload.capitalizacion = "Mensual" # Deshabilitado/Default
+        payload.capitalizacion = "Mensual" 
 
         tasa_ingresada = Decimal(str(payload.tasa_anual))
         if not (ifi_row.tea_min <= tasa_ingresada <= ifi_row.tea_max):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"La tasa {float(tasa_ingresada):.2f}% está fuera del rango TEA "
-                    f"de {payload.ifi_seleccionada} ({float(ifi_row.tea_min):.2f}% – {float(ifi_row.tea_max):.2f}%)."
-                )
-            )
+            raise HTTPException(status_code=400, detail=f"La tasa está fuera del rango TEA de {payload.ifi_seleccionada}.")
         
-        # Validación de PLAZO específico de la IFI
         plazo_anios = payload.plazo_meses / 12
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"El plazo de {payload.plazo_meses} meses ({plazo_anios:.1f} años) está fuera del rango "
-                    f"de {payload.ifi_seleccionada} ({ifi_row.plazo_min_anios} – {ifi_row.plazo_max_anios} años)."
-                )
-            )
+            raise HTTPException(status_code=400, detail=f"El plazo está fuera del rango de {payload.ifi_seleccionada}.")
         
-        tiene_mancomunado = False
-        if role == "Cliente":
-            client_obj = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-            if client_obj: tiene_mancomunado = client_obj.tiene_deudor_solidario
+        tiene_mancomunado = getattr(entity, 'tiene_deudor_solidario', False) if entity else False
         
-        payload.seguro_desgravamen = ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual
+        # 🚨 SOLUCIÓN: Normalizador matemático para el seguro de la BD
+        tasa_seguro_bd = float(ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual)
+        # Si la tasa está guardada como 2.8 o 0.028 (porcentajes), la forzamos al decimal real 0.00028
+        while tasa_seguro_bd > 0.01:
+            tasa_seguro_bd = tasa_seguro_bd / 100
+        
+        payload.seguro_desgravamen = tasa_seguro_bd
 
     else:
-        # ── MODO MANUAL ──
-        # Si eliges "Efectiva", capitalización no aplica (forzamos Mensual)
         if payload.tipo_tasa == "Efectiva":
             payload.capitalizacion = "Mensual"
-        # Si eliges "Nominal", se usa la capitalización enviada por el usuario
-
+    # ──────────────────────────────────────────────────
     # ───────────────────────────────────────────────────────────────────────────
 
     # Tasas (Precisión 8,6) - Asignar tem lo más temprano posible
@@ -384,8 +372,10 @@ def run_simulation(
         m = Decimal("12") / Decimal(str({"Mensual": 1, "Bimestral": 2, "Trimestral": 3}.get(payload.capitalizacion, 1)))
         tea = (1 + tasa_anual_dec / m)**m - 1
     tem = (1 + tea)**(Decimal("1")/Decimal("12")) - 1
+
     seguro_tasa = Decimal(str(payload.seguro_desgravamen)) / Decimal("100")
     n_total = payload.plazo_meses
+    
     # Validaciones Finales de Gracia
     if payload.tipo_gracia == "Ninguno":
         m_gracia = 0
@@ -393,7 +383,6 @@ def run_simulation(
     else:
         m_gracia = payload.meses_gracia
 
-    n_total = payload.plazo_meses
     n_reales = n_total - m_gracia
     
     # MÉTODO DE CÁLCULO: Usamos Tasa Combinada (TEM + Seguro) para cuota constante total
@@ -445,10 +434,9 @@ def run_simulation(
 
     for i in range(1, n_total + 1):
         saldo_anterior = saldo
-        interes_capitalizado = Decimal("0")
-        
         int_periodo = saldo_anterior * tem
         seguro_periodo = saldo_anterior * seguro_tasa
+        interes_capitalizado = Decimal("0")
         
         # Solo entramos a lógica de gracia si tipo_gracia != "Ninguno"
         if payload.tipo_gracia != "Ninguno" and i <= m_gracia:
@@ -479,6 +467,11 @@ def run_simulation(
             amort_periodo = cuota_base - int_periodo - seguro_pago
             cuota_t = cuota_base
             saldo = saldo_anterior - amort_periodo
+            
+            if i == n_total and saldo != Decimal("0"):
+                cuota_t += saldo
+                amort_periodo += saldo
+                saldo = Decimal("0")
         
         total_int += int_periodo
         total_seg += seguro_pago
@@ -505,39 +498,25 @@ def run_simulation(
             "saldo_final": float(max(Decimal("0"), saldo))
         })
 
-        detalles_db.append(SimulationDetail(
+        detalle = SimulationDetail(
             numero_cuota=i,
-            saldo_inicio=d2(saldo_anterior), 
+            saldo_inicio=d2(saldo_anterior),
             interes=d2(int_periodo),
             interes_capitalizado=d2(interes_capitalizado),
             seguro=d2(seguro_periodo),
-            amortizacion=d2(amort_periodo),
+            amortizacion=d2(amort_periodo), 
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
             flujo_caja=d2(-cuota_t), 
             fecha_vencimiento=fecha_pago
         ))
 
-    # Affordability Ratio (IFM: Ingreso Familiar Mensual)
     max_cuota = max(d.cuota_total for d in detalles_db)
-    ifm = Decimal("0")
     
-    # Obtener entidad para IFM
-    entity = None
-    if role == "Cliente":
-        entity = db.query(Client).filter(Client.codigo_cliente == current_user.codigo_usuario).first()
-    elif role == "Asesor" and payload.codigo_prospecto:
-        entity = db.query(Prospect).filter(Prospect.codigo_prospecto == payload.codigo_prospecto).first()
-    # Administrador: no tiene entidad asociada, se omite validación de capacidad de pago
-    
-    if entity:
-        ifm = Decimal(str(entity.ingreso_mensual or 0)) + Decimal(str(entity.ingreso_conyuge or 0))
-
+    # El IFM ya lo calculamos al principio de la función
+    # Solo validamos capacidad de pago si tenemos ingresos (el admin puede hacer simulación libre si ifm=0)
     ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("0")
     
-    # Límite del Fondo MiVivienda: ratio cuota/ingreso no debe superar 40%
-    # para viviendas de hasta S/ 205k. Para montos mayores, se es más flexible.
-    # Solo validar si hay datos de ingreso (excluye Admin sin entidad asociada)
     if ifm > 0:
         limite_ratio = Decimal("40.00") if pv_pen <= Decimal("205000.00") else Decimal("50.00")
         if ratio > limite_ratio:
@@ -549,7 +528,6 @@ def run_simulation(
                 )
             )
 
-    # Financieros
     try:
         tir = npf.irr(flujos_caja)
         tcea = ((1 + tir) ** 12) - 1
@@ -601,6 +579,7 @@ def run_simulation(
 
         # Modo GUARDAR: persistir en BD
         new_sim = Simulation(
+            fecha_inicio_prestamo=fecha_base,
             cuota_inicial=payload.cuota_inicial,
             coste_notarial=payload.coste_notarial,
             coste_registral=payload.coste_registral,
@@ -612,7 +591,7 @@ def run_simulation(
             ifi_seleccionada=payload.ifi_seleccionada, tipo_tasa=payload.tipo_tasa,
             tasa_anual=payload.tasa_anual, plazo_meses=payload.plazo_meses,
             tipo_gracia=payload.tipo_gracia, meses_gracia=payload.meses_gracia,
-            seguro_desgravamen=payload.seguro_desgravamen, fecha_inicio_prestamo=fecha_base,
+            seguro_desgravamen=payload.seguro_desgravamen, 
             codigo_unidad=payload.codigo_unidad, codigo_cliente=payload.codigo_cliente,
             codigo_prospecto=payload.codigo_prospecto, codigo_asesor=payload.codigo_asesor
         )
