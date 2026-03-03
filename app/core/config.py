@@ -5,9 +5,9 @@ load_dotenv(override=True)
 
 class Settings:
     PROJECT_NAME: str = "PropEquity"
-    DATABASE_URL: str = os.getenv("DATABASE_URL")
-    SECRET_KEY: str = os.getenv("SECRET_KEY")
-    ALGORITHM: str = os.getenv("ALGORITHM")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:123456789finanzas@db.xwsoccjotosoowatjihj.supabase.co:5432/postgres")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "mi_clave_secreta_super_segura_123")
+    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
 settings = Settings()
