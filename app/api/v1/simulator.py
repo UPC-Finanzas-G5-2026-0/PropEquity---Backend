@@ -404,7 +404,7 @@ def run_simulation(
                 saldo = Decimal("0")
         
         total_int += int_periodo
-        total_seg += seguro_periodo
+        total_seg += seguro_pago  # Solo lo que realmente se pagó (0 en gracia parcial/total)
         flujos_caja.append(-float(cuota_t))
 
         detalle = SimulationDetail(
@@ -447,10 +447,13 @@ def run_simulation(
             )
 
     # Financieros
+    # Tasa de descuento: 8% anual → mensual
+    TASA_DESCUENTO_ANUAL = Decimal("0.08")
+    tasa_descuento_mensual = (1 + TASA_DESCUENTO_ANUAL) ** (Decimal("1") / Decimal("12")) - 1
     try:
         tir = npf.irr(flujos_caja)
         tcea = ((1 + tir) ** 12) - 1
-        van = npf.npv(float(tem), flujos_caja)
+        van = npf.npv(float(tasa_descuento_mensual), flujos_caja)
     except: tir, tcea, van = 0, 0, 0
 
     resumen_dict = {
@@ -461,6 +464,7 @@ def run_simulation(
         "monto_financiar": float(monto_financiar),
         "tasa_efectiva_anual": float(tea * 100),
         "tasa_efectiva_mensual": float(tem * 100),
+        "tasa_descuento": float(TASA_DESCUENTO_ANUAL * 100),  # 8% anual fija
         "factor_frances": float(factor),
         "cuota_base": float(cuota_base),
         "ratio_cuota_ingreso": float(ratio),
