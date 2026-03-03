@@ -12,49 +12,65 @@ from .database import engine, Base, SessionLocal
 from . import models 
 from .api.v1 import simulator, auth, clients, units, prospects
 
-# SEGURIDAD PARA RENDER: Crear carpeta 'uploads' si no existe.
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- FUNCIÓN: Sembrador automático de roles (Ajustada a RolUsuario) ---
-def seed_roles():
+# --- FUNCIÓN: Súper Sembrador Automático (Roles, Ingresos, Estado Civil) ---
+def seed_catalogs():
     db = SessionLocal()
     try:
-        # Usamos models.RolUsuario que es el nombre real en tu models.py
-        roles_existentes = db.query(models.RolUsuario).count() 
-        
-        if roles_existentes == 0:
-            print("🌱 Base de datos vacía. Sembrando roles iniciales...")
-            roles_basicos = [
+        # 1. Sembrar Roles
+        if db.query(models.RolUsuario).count() == 0:
+            db.add_all([
                 models.RolUsuario(tipo_rol="Cliente"),
                 models.RolUsuario(tipo_rol="Asesor"),
                 models.RolUsuario(tipo_rol="Admin")
-            ]
-            db.add_all(roles_basicos)
+            ])
             db.commit()
-            print("✅ Roles 'Cliente', 'Asesor' y 'Admin' creados exitosamente.")
-        else:
-            print(f"✔️ La tabla roles_usuario ya cuenta con {roles_existentes} registros.")
+            print("Roles creados.")
+
+        # 2. Sembrar Tipos de Ingreso
+        if db.query(models.TipoIngreso).count() == 0:
+            db.add_all([
+                models.TipoIngreso(nombre_tipo_ingreso="Dependiente"),
+                models.TipoIngreso(nombre_tipo_ingreso="Independiente"),
+                models.TipoIngreso(nombre_tipo_ingreso="Ahorro programado")
+            ])
+            db.commit()
+            print("Tipos de ingreso creados.")
+
+        # 3. Sembrar Estados Civiles
+        if db.query(models.EstadoCivil).count() == 0:
+            db.add_all([
+                models.EstadoCivil(nombre_estado_civil="Soltero"),
+                models.EstadoCivil(nombre_estado_civil="Casado"),
+                models.EstadoCivil(nombre_estado_civil="Conviviente"),
+                models.EstadoCivil(nombre_estado_civil="Divorciado"),
+                models.EstadoCivil(nombre_estado_civil="Viudo")
+            ])
+            db.commit()
+            print("Estados civiles creados.")
+
     except Exception as e:
         db.rollback()
-        print(f"⚠️ Error al intentar sembrar los roles: {e}")
+        print(f"⚠️ Error al intentar sembrar catálogos: {e}")
     finally:
         db.close()
+# ----------------------------------------------------
 
 # --- Inicialización de Base de Datos ---
 try:
-    # Mantener comentado para evitar pérdida de datos en producción
-    # Base.metadata.drop_all(bind=engine) 
+    # Base.metadata.drop_all(bind=engine) # MANTENER COMENTADO
     
     Base.metadata.create_all(bind=engine)
     configure_mappers()
-    print("✅ Conexión a base de datos establecida.")
+    print("Conexión a base de datos PostgreSQL establecida.")
     
-    # Ejecutar la siembra automática
-    seed_roles()
+    # Ejecutar la siembra automática de catálogos
+    seed_catalogs()
     
 except Exception as e:
-    print(f"❌ Error crítico de Base de Datos: {e}")
+    print(f" Error crítico de Base de Datos: {e}")
 
 app = FastAPI(
     title="PropEquity API",
@@ -64,7 +80,6 @@ app = FastAPI(
 
 app.router.redirect_slashes = False
 
-# Montar archivos estáticos
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # CORS
@@ -84,35 +99,25 @@ app.add_middleware(
 )
 
 # --- Exception Handlers ---
-
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(
         status_code=422,
-        content=jsonable_encoder({
-            "message": "Error de validación de datos", 
-            "detail": exc.errors()
-        })
+        content=jsonable_encoder({"message": "Error de validación de datos", "detail": exc.errors()})
     )
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
-    return JSONResponse(
-        status_code=422,
-        content={"message": "Error de lógica de negocio", "detail": str(exc)}
-    )
+    return JSONResponse(status_code=422, content={"message": "Error de lógica", "detail": str(exc)})
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
-        content={
-            "message": "Internal Server Error", 
-            "detail": str(exc) if os.getenv("DEBUG") == "true" else "Ocurrió un error inesperado."
-        }
+        content={"message": "Internal Server Error", "detail": str(exc) if os.getenv("DEBUG") == "true" else "Error inesperado."}
     )
 
-# --- Inclusión de Routers ---
+# --- Routers ---
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
@@ -121,8 +126,4 @@ app.include_router(prospects.router, prefix="/api/v1/prospects", tags=["Prospect
 
 @app.get("/")
 def read_root():
-    return {
-        "message": "PropEquity API activa",
-        "environment": "Production" if os.getenv("RENDER") else "Development",
-        "docs": "/docs"
-    }
+    return {"message": "PropEquity API activa", "status": "Operational"}
