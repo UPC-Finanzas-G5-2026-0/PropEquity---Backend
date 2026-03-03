@@ -256,12 +256,18 @@ class Simulation(Base):
     __tablename__ = "simulations"
     codigo_simulacion = Column(Integer, primary_key=True, autoincrement=True)
     fecha_simulacion = Column(Date, default=date.today, nullable=False)
+    fecha_inicio_prestamo = Column(Date, nullable=True)
     cuota_inicial = Column(Numeric(12, 2), default=0.00)
 
-    # Gastos de cierre
-    gastos_cierre = Column(Numeric(12, 2), default=Decimal("0.00"))
-    # >= 0 y <= 5% del precio_venta
-    # Incluye: tasación, notaría, registros, alcabala
+    # Gastos iniciales (Desglose)
+    coste_notarial = Column(Numeric(12, 2), default=Decimal("0.00"))
+    coste_registral = Column(Numeric(12, 2), default=Decimal("0.00"))
+    tasacion = Column(Numeric(12, 2), default=Decimal("0.00"))
+    comision_estudio = Column(Numeric(12, 2), default=Decimal("0.00"))
+    comision_activacion = Column(Numeric(12, 2), default=Decimal("0.00"))
+    
+    gastos_iniciales = Column(Numeric(12, 2), default=Decimal("0.00"))
+    # Es la suma de los 5 campos anteriores. >= 0 y <= 5% del precio_venta.
 
     # BBP
     tipo_bbp = Column(String(25), default="Ninguno")
@@ -354,14 +360,16 @@ class SimulationDetail(Base):
     codigo_simulacion = Column(Integer, ForeignKey("simulations.codigo_simulacion"), nullable=False)
     
     numero_cuota = Column(Integer, nullable=False)
+    saldo_inicio = Column(Numeric(12, 2))
     cuota_total = Column(Numeric(12, 2))
     interes = Column(Numeric(12, 2))
+    interes_capitalizado = Column(Numeric(12, 2), default=0.00)
     amortizacion = Column(Numeric(12, 2))
     seguro = Column(Numeric(12, 2))
     saldo_final = Column(Numeric(12, 2))
-    
+    flujo_caja = Column(Numeric(12, 2))
     fecha_vencimiento = Column(Date, nullable=True) 
 
     simulacion_rel = relationship("Simulation", back_populates="detalles")
 
-    __table_args__ = (CheckConstraint('numero_cuota >= 1', name='check_numero_cuota'),)
+    __table_args__ = (CheckConstraint('numero_cuota >= 0', name='check_numero_cuota'),)

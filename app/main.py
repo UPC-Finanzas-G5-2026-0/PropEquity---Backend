@@ -47,9 +47,20 @@ app.add_middleware(
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Convert all error details to strings to avoid serialization issues
+    def stringify_exceptions(obj):
+        if isinstance(obj, Exception):
+            return str(obj)
+        elif isinstance(obj, dict):
+            return {k: stringify_exceptions(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [stringify_exceptions(v) for v in obj]
+        else:
+            return obj
+    error_details = stringify_exceptions(exc.errors())
     return JSONResponse(
         status_code=422,
-        content={"message": "Error de validación de datos", "detail": exc.errors()},
+        content={"message": "Error de validación de datos", "detail": error_details},
         headers={
             "Access-Control-Allow-Origin": "http://localhost:3000",
             "Access-Control-Allow-Credentials": "true",
@@ -104,6 +115,17 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 app.include_router(auth.router, prefix="/api/v1/auth")
+
+# Endpoint público para TEM, sin autenticación
+@app.get("/api/v1/simulator/tem")
+def calcular_tem(tea: float):
+    """
+    Calcula la Tasa Efectiva Mensual (TEM) a partir de la Tasa Efectiva Anual (TEA).
+    Parámetro: tea (float) en porcentaje, por ejemplo 12 para 12% anual.
+    """
+    tem = (1 + (tea / 100)) ** (1/12) - 1
+    return {"tem": round(tem, 6)}
+
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
 app.include_router(units.router, prefix="/api/v1/units", tags=["Unidades"])

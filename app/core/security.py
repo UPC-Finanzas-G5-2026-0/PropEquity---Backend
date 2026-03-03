@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.schemas.user import TokenData 
+from app.core.config import settings
 
-# Configuración (Idealmente esto va en un archivo .env)
-SECRET_KEY = "tu_clave_secreta_super_segura_para_propequity"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# Configuración desde settings
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 import bcrypt
 from fastapi.security import OAuth2PasswordBearer

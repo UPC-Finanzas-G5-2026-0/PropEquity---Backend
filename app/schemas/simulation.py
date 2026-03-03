@@ -10,8 +10,14 @@ IFIS = ["BCP", "BBVA", "Interbank", "Pichincha", "GNB"]
 class SimulationBase(BaseModel):
     # Cuota inicial y gastos — validación cruzada con precio_venta en el endpoint
     cuota_inicial: float = Field(default=0.00, ge=0)
-    gastos_cierre: float = Field(default=0.00, ge=0)
-    # gastos_cierre: 0% a 5% del precio_venta (tasación, notaría, registros, alcabala)
+    coste_notarial: float = Field(default=0.00, ge=0)
+    coste_registral: float = Field(default=0.00, ge=0)
+    tasacion: float = Field(default=0.00, ge=0)
+    comision_estudio: float = Field(default=0.00, ge=0)
+    comision_activacion: float = Field(default=0.00, ge=0)
+    
+    gastos_iniciales: float = Field(default=0.00, ge=0)
+    # Total de gastos (notaría, registros, tasación, comisiones)
 
     # BBP
     tipo_bbp: str = Field(default="Ninguno")
@@ -28,7 +34,7 @@ class SimulationBase(BaseModel):
     tipo_cambio: float = Field(default=3.75, ge=2.0, le=5.0)  # Cambiar de Decimal a float
 
     # Plazo
-    plazo_meses: int = Field(..., ge=60, le=240)
+    plazo_meses: int = Field(...)
 
     # Gracia
     tipo_gracia: str = Field(default="Ninguno")     # "Ninguno" / "Parcial" / "Total"
@@ -45,6 +51,15 @@ class SimulationBase(BaseModel):
 
     # Fecha
     fecha_inicio_prestamo: Optional[date] = None
+
+    @field_validator("plazo_meses")
+    @classmethod
+    def validate_plazo_meses(cls, v):
+        if v < 60:
+            raise ValueError("El plazo mínimo permitido es de 60 meses (5 años).")
+        if v > 240:
+            raise ValueError("El plazo máximo permitido es de 240 meses (20 años).")
+        return v
 
     @field_validator("tipo_bbp")
     @classmethod
@@ -149,7 +164,12 @@ class SimulationResponse(BaseModel):
     fecha_simulacion: date
     fecha_inicio_prestamo: date
     cuota_inicial: Decimal
-    gastos_cierre: Decimal
+    gastos_iniciales: Decimal
+    coste_notarial: Decimal
+    coste_registral: Decimal
+    tasacion: Decimal
+    comision_estudio: Decimal
+    comision_activacion: Decimal
     tipo_bbp: str
     bono_bbp: Decimal
     categoria_integrador: Optional[str] = None
@@ -169,5 +189,24 @@ class SimulationResponse(BaseModel):
     resumen: Optional[SimulationSummaryResponse] = None
     detalles: List[SimulationDetailResponse] = []
 
+    # Campos calculados para el dashboard (se rellenan desde relaciones ORM)
+    direccion_unidad: Optional[str] = None
+    distrito_unidad: Optional[str] = None
+    monto_financiamiento: Optional[Decimal] = None
+    cuota_mensual: Optional[Decimal] = None
+
     class Config:
         from_attributes = True
+
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        instance = super().model_validate(obj, *args, **kwargs)
+        # Rellenar campos de la unidad si existe la relación ORM
+        if hasattr(obj, 'unidad_rel') and obj.unidad_rel:
+            instance.direccion_unidad = obj.unidad_rel.direccion_unidad
+            instance.distrito_unidad = obj.unidad_rel.distrito_unidad
+        # Rellenar campos financieros desde el resumen si existe
+        if hasattr(obj, 'resumen') and obj.resumen:
+            instance.monto_financiamiento = obj.resumen.monto_financiar
+            instance.cuota_mensual = obj.resumen.cuota_base
+        return instance
