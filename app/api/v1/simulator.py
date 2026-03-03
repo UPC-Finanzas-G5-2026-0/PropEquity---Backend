@@ -472,6 +472,28 @@ def run_simulation(
         "total_seguro": float(total_seg)
     }
 
+    def _detalle_to_dict(d) -> dict:
+        """Serializa un SimulationDetail (ORM + atributos dinámicos) a dict."""
+        return {
+            "numero_cuota":        d.numero_cuota,
+            "fecha_vencimiento":   getattr(d, "fecha_vencimiento", None),
+            "fecha_pago":          getattr(d, "fecha_pago", None),
+            "tea":                 float(d.tea) if getattr(d, "tea", None) is not None else None,
+            "tem":                 float(d.tem) if getattr(d, "tem", None) is not None else None,
+            "plazo_gracia":        getattr(d, "plazo_gracia", "Sin Gracia"),
+            "saldo_inicio":        float(d.saldo_inicio) if d.saldo_inicio is not None else None,
+            "saldo_inicial":       float(getattr(d, "saldo_inicial", d.saldo_inicio)) if d.saldo_inicio is not None else None,
+            "interes":             float(d.interes),
+            "interes_capitalizado":float(getattr(d, "interes_capitalizado", 0) or 0),
+            "amortizacion":        float(d.amortizacion),
+            "seguro":              float(d.seguro),
+            "seguro_desgravamen":  float(getattr(d, "seguro_desgravamen", d.seguro)) if d.seguro is not None else None,
+            "cuota_total":         float(d.cuota_total),
+            "cuota":               float(getattr(d, "cuota", d.cuota_total)) if d.cuota_total is not None else None,
+            "saldo_final":         float(d.saldo_final),
+            "flujo_caja":          float(getattr(d, "flujo_caja", 0) or 0),
+        }
+
     try:
         if not save:
             # Modo PREVIEW: devolver cronograma sin guardar en BD
@@ -499,7 +521,7 @@ def run_simulation(
                 "direccion_unidad": unit.direccion_unidad,
                 "distrito_unidad": unit.distrito_unidad,
                 "resumen": resumen_dict,
-                "detalles": detalles_db
+                "detalles": [_detalle_to_dict(d) for d in detalles_db]
             }
 
         new_sim = Simulation(
