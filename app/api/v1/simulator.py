@@ -447,9 +447,9 @@ def run_simulation(
             )
 
     # Financieros
-    # Tasa de descuento: 8% anual → mensual
+    # Tasa de descuento: 8% anual → mensual (Convención 30/360)
     TASA_DESCUENTO_ANUAL = Decimal("0.08")
-    tasa_descuento_mensual = (1 + TASA_DESCUENTO_ANUAL) ** (Decimal("1") / Decimal("12")) - 1
+    tasa_descuento_mensual = (1 + TASA_DESCUENTO_ANUAL) ** (Decimal("30") / Decimal("360")) - 1
     try:
         tir = npf.irr(flujos_caja)
         tcea = ((1 + tir) ** 12) - 1
