@@ -12,15 +12,20 @@ from .database import engine, Base
 from . import models 
 from .api.v1 import simulator, auth, clients, units, prospects
 
-# 🚨 SEGURIDAD PARA RENDER: Crear carpeta 'uploads' si no existe.
+# SEGURIDAD PARA RENDER: Crear carpeta 'uploads' si no existe.
 # Sin esto, app.mount fallará si la carpeta no está en el repo de Git.
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
 # Crear tablas e inicializar mappers
 try:
+    # LÍNEA NUCLEAR: Borra todas las tablas viejas
+    Base.metadata.drop_all(bind=engine) 
+    
+    # Crea las tablas nuevecitas con TODAS las columnas
     Base.metadata.create_all(bind=engine)
     configure_mappers()
+    print("✅ Tablas de base de datos recreadas exitosamente.")
 except Exception as e:
     print(f"⚠️ Alerta de Base de Datos: {e}")
 
