@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import configure_mappers
 
 # Importaciones locales
-from .database import engine, Base
+from .database import engine, Base, SessionLocal # AGREGADO SessionLocal
 from . import models 
 from .api.v1 import simulator, auth, clients, units, prospects
 
@@ -17,17 +17,46 @@ from .api.v1 import simulator, auth, clients, units, prospects
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
+# --- NUEVA FUNCIÓN: Sembrador automático de roles ---
+def seed_roles():
+    db = SessionLocal()
+    try:
+        # Revisa si la tabla ya tiene roles
+        roles_existentes = db.query(models.Rol).count() 
+        
+        if roles_existentes == 0:
+            print("🌱 La tabla de roles está vacía. Sembrando roles por defecto...")
+            roles_basicos = [
+                models.Rol(tipo_rol="Cliente"),
+                models.Rol(tipo_rol="Asesor"),
+                models.Rol(tipo_rol="Admin")
+            ]
+            db.add_all(roles_basicos)
+            db.commit()
+            print("✅ Roles 'Cliente', 'Asesor' y 'Admin' creados exitosamente.")
+        else:
+            print(f"✔️ Ya existen {roles_existentes} roles en la base de datos.")
+    except Exception as e:
+        print(f"⚠️ Error al intentar crear los roles: {e}")
+    finally:
+        db.close()
+# ----------------------------------------------------
+
 # Crear tablas e inicializar mappers
 try:
-    # LÍNEA NUCLEAR: Borra todas las tablas viejas
-    Base.metadata.drop_all(bind=engine) 
+    # ¡LÍNEA COMENTADA! Ya no borraremos tus datos en cada reinicio
+    # Base.metadata.drop_all(bind=engine) 
     
-    # Crea las tablas nuevecitas con TODAS las columnas
+    # Crea las tablas nuevecitas si no existen
     Base.metadata.create_all(bind=engine)
     configure_mappers()
-    print("✅ Tablas de base de datos recreadas exitosamente.")
+    print("Tablas de base de datos listas.")
+    
+    # Ejecutamos el sembrador de roles
+    seed_roles()
+    
 except Exception as e:
-    print(f"⚠️ Alerta de Base de Datos: {e}")
+    print(f"Alerta de Base de Datos: {e}")
 
 app = FastAPI(
     title="PropEquity API",
