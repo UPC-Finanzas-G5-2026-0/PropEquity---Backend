@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
@@ -15,6 +15,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
+import openpyxl
 
 router = APIRouter()
 
@@ -106,6 +109,7 @@ def get_ifis_disponibles(
 @router.post("/", response_model=SimulationResponse)
 def run_simulation(
     payload: SimulationCreate,
+    save: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -221,23 +225,35 @@ def run_simulation(
         if tipo_v and tipo_v.nombre_tipo_venta == "Segunda venta":
             raise HTTPException(status_code=400, detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta.")
 
-    # Validaciones exclusivas con control de atributos (hasattr)
+    # R-FMV1: El solicitante NO debe ser propietario de vivienda
     if payload.tipo_bbp != "Ninguno" and entity:
         if hasattr(entity, 'es_propietario_vivienda') and entity.es_propietario_vivienda:
-            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya son propietarios de otra vivienda.")
+            raise HTTPException(status_code=400, detail="El solicitante ya es propietario de una vivienda. No califica para el BBP.")
+        
+        # R-FMV2: El cónyuge/conviviente NO debe ser propietario
+        if hasattr(entity, 'conyuge_propietario') and entity.conyuge_propietario:
+            raise HTTPException(status_code=400, detail="El cónyuge o conviviente ya es propietario de una vivienda. No califica para el BBP.")
+        elif hasattr(entity, 'es_casado') and entity.es_casado and hasattr(entity, 'conyuge_rel'):
+            # Si el cónyuge está en otra tabla o relación, también se podría validar aquí
+            pass
+
+        # R-FMV3: Los hijos menores NO deben ser propietarios
         if hasattr(entity, 'hijos_menores_propietarios') and entity.hijos_menores_propietarios:
-            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si tienen hijos menores propietarios.")
+            raise HTTPException(status_code=400, detail="Uno o más hijos menores de edad figura como propietario. No califica para el BBP.")
+        
+        # R-FMV4: No haber recibido apoyo habitacional estatal previo
         if hasattr(entity, 'recibio_apoyo_estatal') and entity.recibio_apoyo_estatal:
-            raise HTTPException(status_code=400, detail="El Crédito MiVivienda NO aplica si ya recibió apoyo habitacional del Estado.")
+            raise HTTPException(status_code=400, detail="El solicitante ya recibió apoyo habitacional del Estado. No califica para el BBP.")
+        
+        # R-FMV5: Límites de créditos
         if hasattr(entity, 'cantidad_creditos_fmv') and entity.cantidad_creditos_fmv >= 2:
             raise HTTPException(status_code=400, detail="Ha alcanzado el límite máximo de 2 créditos MiVivienda.")
+        
         if hasattr(entity, 'tiene_credito_fmv_activo') and entity.tiene_credito_fmv_activo:
-            raise HTTPException(status_code=400, detail="Tiene un Crédito MiVivienda ACTIVO.")
+            raise HTTPException(status_code=400, detail="El solicitante tiene un Crédito MiVivienda activo. Bloqueado.")
 
-    # 4. Gastos cierre y Cuota Inicial
-    gastos_cierre = Decimal(str(payload.gastos_cierre))
+    # 4. Cuota Inicial y Financiamiento
     cuota_inicial = Decimal(str(payload.cuota_inicial))
-
     porcentaje_inicial = (cuota_inicial / pv) * 100
     min_porcentaje = Decimal("7.5") if modalidad in ["Construccion", "Mejoramiento"] else Decimal("10.0")
 
@@ -246,12 +262,21 @@ def run_simulation(
 
     # 5. Cálculo del Préstamo
     precio_neto = pv - bono_total
-    monto_financiar = (precio_neto - cuota_inicial) + gastos_cierre
+    monto_financiar = (precio_neto - cuota_inicial) + Decimal(str(payload.gastos_iniciales))
 
     if modalidad not in ["Construccion", "Mejoramiento"]:
         max_financiar = pv * Decimal("0.90")
         if monto_financiar > max_financiar:
             raise HTTPException(status_code=400, detail=f"Financiamiento excede el 90% (S/ {float(max_financiar):,.2f}).")
+
+    # Gastos iniciales no pueden superar el 5% del precio de venta (Según tu commit)
+    max_gastos = pv * Decimal("0.05")
+    gastos_actuales = Decimal(str(payload.gastos_iniciales or 0))
+    if gastos_actuales > max_gastos:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Los gastos iniciales (S/ {float(gastos_actuales):,.2f}) exceden el límite del 5% (Máx S/ {float(max_gastos):,.2f})."
+        )
 
     if monto_financiar <= 0:
         raise HTTPException(status_code=400, detail="El monto a financiar debe ser mayor a 0.")
@@ -279,14 +304,7 @@ def run_simulation(
             raise HTTPException(status_code=400, detail=f"El plazo está fuera del rango de {payload.ifi_seleccionada}.")
         
         tiene_mancomunado = getattr(entity, 'tiene_deudor_solidario', False) if entity else False
-        
-        # 🚨 SOLUCIÓN: Normalizador matemático para el seguro de la BD
-        tasa_seguro_bd = float(ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual)
-        # Si la tasa está guardada como 2.8 o 0.028 (porcentajes), la forzamos al decimal real 0.00028
-        while tasa_seguro_bd > 0.01:
-            tasa_seguro_bd = tasa_seguro_bd / 100
-        
-        payload.seguro_desgravamen = tasa_seguro_bd
+        payload.seguro_desgravamen = float(ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual)
 
     else:
         if payload.tipo_tasa == "Efectiva":
@@ -301,22 +319,53 @@ def run_simulation(
         tea = (1 + tasa_anual_dec / m)**m - 1
     
     tem = (1 + tea)**(Decimal("1")/Decimal("12")) - 1
-
+    
+    # Normalización del Seguro de Desgravamen (de % mensual a decimal mensual)
+    seguro_tasa = Decimal(str(payload.seguro_desgravamen)) / Decimal("100")
     n_total = payload.plazo_meses
     m_gracia = payload.meses_gracia
     n_reales = n_total - m_gracia
     
-    factor = (tem * (1 + tem) ** n_reales) / ((1 + tem) ** n_reales - 1) if tem > 0 else (Decimal("1")/Decimal(str(n_reales)))
+    # MÉTODO DE CÁLCULO: Usamos Tasa Combinada (TEM + Seguro) para cuota constante total
+    # (Como estaba en tu commit aadce4c)
+    tasa_para_factor = tem + seguro_tasa
+    factor = (tasa_para_factor * (1 + tasa_para_factor) ** n_reales) / ((1 + tasa_para_factor) ** n_reales - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
     # 5. Cronograma detallado
-    detalles_db = []
-    saldo = monto_financiar
-    seguro_tasa = Decimal(str(payload.seguro_desgravamen))
     fecha_base = payload.fecha_inicio_prestamo or date.today()
-    
     flujos_caja = [float(monto_financiar)] 
     total_int, total_seg = Decimal("0"), Decimal("0")
+
+    # Agregar cuota 0 (Desembolso inicial) como estaba en tu commit
+    detalles_db = []
+    saldo = monto_financiar
+    # seguro_tasa ya está calculado arriba como mensual absoluto
+    
+    detalles_db.append(SimulationDetail(
+        numero_cuota=0,
+        saldo_inicio=d2(monto_financiar),
+        interes=d2(0),
+        interes_capitalizado=d2(0),
+        seguro=d2(0),
+        amortizacion=d2(0),
+        cuota_total=d2(0),
+        saldo_final=d2(monto_financiar),
+        flujo_caja=d2(0),
+        fecha_vencimiento=fecha_base
+    ))
+    
+    # Enriquecer cuota 0 para el frontend
+    detalles_db[0].fecha_pago = fecha_base
+    detalles_db[0].saldo_inicial = d2(monto_financiar)
+    detalles_db[0].interes_capitalizado = d2(0)
+    detalles_db[0].flujo_caja = d2(0)
+    detalles_db[0].tea = None # No aplica
+    detalles_db[0].tem = None # No aplica
+    detalles_db[0].seguro_desgravamen = d2(0)
+    detalles_db[0].cuota = d2(0)
+    detalles_db[0].plazo_gracia = "-"
+
     for i in range(1, n_total + 1):
         saldo_anterior = saldo
         int_periodo = saldo_anterior * tem
@@ -325,22 +374,28 @@ def run_simulation(
         
         if i <= m_gracia:
             if payload.tipo_gracia == "Total":
-                amort_periodo = -int_periodo 
-                cuota_t = Decimal("0")
-                seguro_periodo = Decimal("0") 
-                interes_cap = int_periodo 
-                saldo = saldo_anterior + int_periodo
-                
-                if i == m_gracia: 
-                    nuevo_factor = (tem * (1 + tem) ** n_reales) / ((1 + tem) ** n_reales - 1) if tem > 0 else (Decimal("1")/Decimal(str(n_reales)))
-                    cuota_base = saldo * nuevo_factor
-            else: 
+                # Gracia Total: Capitaliza intereses, no paga seguro (según aadce4c)
+                interes_cap = int_periodo
                 amort_periodo = Decimal("0")
-                cuota_t = int_periodo + seguro_periodo
+                seguro_pago = Decimal("0")
+                cuota_t = Decimal("0")
+                saldo = saldo_anterior + interes_cap
+            else: # Parcial
+                # Gracia Parcial: Paga interés únicamente (sin seguro según aadce4c)
+                amort_periodo = Decimal("0")
+                seguro_pago = Decimal("0")
+                cuota_t = int_periodo
                 saldo = saldo_anterior
+                
+            if i == m_gracia: 
+                n_restantes = n_total - m_gracia
+                factor_p = (tasa_para_factor * (1 + tasa_para_factor) ** n_restantes) / ((1 + tasa_para_factor) ** n_restantes - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_restantes)))
+                cuota_base = saldo * factor_p
         else:
-            amort_periodo = cuota_base - int_periodo
-            cuota_t = cuota_base + seguro_periodo
+            # Sistema Francés con Tasa Combinada: Cuota Total es constante
+            seguro_pago = seguro_periodo
+            amort_periodo = cuota_base - int_periodo - seguro_pago
+            cuota_t = cuota_base
             saldo = saldo_anterior - amort_periodo
             
             if i == n_total and saldo != Decimal("0"):
@@ -355,45 +410,107 @@ def run_simulation(
         detalle = SimulationDetail(
             numero_cuota=i,
             interes=d2(int_periodo),
-            seguro=d2(seguro_periodo),
+            seguro=d2(seguro_pago),
             amortizacion=d2(amort_periodo), 
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
             fecha_vencimiento=date(fecha_base.year + (fecha_base.month + i - 1) // 12, (fecha_base.month + i - 1) % 12 + 1, min(fecha_base.day, 28))
         )
         
+        # Enriquecer con campos para el frontend (Sin d2 excesivo para tasas)
         detalle.saldo_inicio = d2(saldo_anterior)
+        detalle.saldo_inicial = d2(saldo_anterior) # Alias
         detalle.interes_capitalizado = d2(interes_cap)
         detalle.flujo_caja = d2(-cuota_t)
+        detalle.fecha_pago = detalle.fecha_vencimiento # Alias
+        detalle.tea = tea * Decimal("100") # Sin d2
+        detalle.tem = tem * Decimal("100") # Sin d2
+        detalle.seguro_desgravamen = d2(seguro_periodo) 
+        detalle.cuota = d2(cuota_t) # Alias
+        detalle.plazo_gracia = f"Gracia {payload.tipo_gracia}" if (payload.tipo_gracia != "Ninguno" and i <= m_gracia) else "Sin Gracia"
 
         detalles_db.append(detalle)
 
     max_cuota = max(d.cuota_total for d in detalles_db)
     
-    # El IFM ya lo calculamos inteligentemente al principio de la función, solo lo evaluamos aquí
-    ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("101.0") 
+    ratio = (max_cuota / ifm * 100) if ifm > 0 else Decimal("0")
     
-    limite_ratio = Decimal("40.00") if pv_pen <= Decimal("205000.00") else Decimal("50.00")
-    
-    if ratio > limite_ratio:
-        raise HTTPException(
-            status_code=400, 
-            detail=(
-                f"Capacidad de pago excedida. El ratio cuota/ingreso es {float(ratio):.1f}%, "
-                f"superando el límite del {float(limite_ratio):.0f}% para este tipo de vivienda."
+    if ifm > 0:
+        limite_ratio = Decimal("40.00") if pv_pen <= Decimal("205000.00") else Decimal("50.00")
+        if ratio > limite_ratio:
+            raise HTTPException(
+                status_code=400, 
+                detail=(
+                    f"Capacidad de pago excedida. El ratio cuota/ingreso es {float(ratio):.1f}%, "
+                    f"superando el límite del {float(limite_ratio):.0f}% para este tipo de vivienda."
+                )
             )
-        )
 
+    # Financieros
     try:
         tir = npf.irr(flujos_caja)
         tcea = ((1 + tir) ** 12) - 1
         van = npf.npv(float(tem), flujos_caja)
     except: tir, tcea, van = 0, 0, 0
 
+    resumen_dict = {
+        "rango_bbp": bono_info["rango"],
+        "bono_bbp_base": float(bono_info["base"]),
+        "bono_integrador_adicional": float(bono_info["integrador"]),
+        "precio_neto": float(precio_neto),
+        "monto_financiar": float(monto_financiar),
+        "tasa_efectiva_anual": float(tea * 100),
+        "tasa_efectiva_mensual": float(tem * 100),
+        "factor_frances": float(factor),
+        "cuota_base": float(cuota_base),
+        "ratio_cuota_ingreso": float(ratio),
+        "van": float(van),
+        "tir": float(tir * 100),
+        "tcea": float(tcea * 100),
+        "total_intereses": float(total_int),
+        "total_pagado": float(sum(d.cuota_total for d in detalles_db)),
+        "total_seguro": float(total_seg)
+    }
+
     try:
+        if not save:
+            # Modo PREVIEW: devolver cronograma sin guardar en BD
+            return {
+                "codigo_simulacion": None,
+                "fecha_simulacion": date.today(),
+                "fecha_inicio_prestamo": fecha_base,
+                "cuota_inicial": float(payload.cuota_inicial),
+                "gastos_iniciales": float(payload.gastos_iniciales),
+                "coste_notarial": float(payload.coste_notarial),
+                "coste_registral": float(payload.coste_registral),
+                "tasacion": float(payload.tasacion),
+                "comision_estudio": float(payload.comision_estudio),
+                "comision_activacion": float(payload.comision_activacion),
+                "tipo_bbp": payload.tipo_bbp,
+                "bono_bbp": float(bono_total),
+                "tipo_tasa": payload.tipo_tasa,
+                "tasa_anual": float(payload.tasa_anual),
+                "capitalizacion": payload.capitalizacion,
+                "plazo_meses": payload.plazo_meses,
+                "tipo_gracia": payload.tipo_gracia,
+                "meses_gracia": payload.meses_gracia,
+                "seguro_desgravamen": float(payload.seguro_desgravamen),
+                "codigo_unidad": payload.codigo_unidad,
+                "direccion_unidad": unit.direccion_unidad,
+                "distrito_unidad": unit.distrito_unidad,
+                "resumen": resumen_dict,
+                "detalles": detalles_db
+            }
+
         new_sim = Simulation(
             fecha_inicio_prestamo=fecha_base,
-            cuota_inicial=payload.cuota_inicial, gastos_cierre=payload.gastos_cierre,
+            cuota_inicial=payload.cuota_inicial,
+            coste_notarial=payload.coste_notarial,
+            coste_registral=payload.coste_registral,
+            tasacion=payload.tasacion,
+            comision_estudio=payload.comision_estudio,
+            comision_activacion=payload.comision_activacion,
+            gastos_iniciales=payload.gastos_iniciales,
             tipo_bbp=payload.tipo_bbp, bono_bbp=bono_total,
             ifi_seleccionada=payload.ifi_seleccionada, tipo_tasa=payload.tipo_tasa,
             tasa_anual=payload.tasa_anual, plazo_meses=payload.plazo_meses,
@@ -404,7 +521,7 @@ def run_simulation(
         )
         db.add(new_sim); db.flush()
 
-        resumen = SimulationResult(
+        resumen_obj = SimulationResult(
             codigo_simulacion=new_sim.codigo_simulacion,
             rango_bbp=bono_info["rango"], bono_bbp_base=bono_info["base"],
             bono_integrador_adicional=bono_info["integrador"],
@@ -414,15 +531,45 @@ def run_simulation(
             ratio_cuota_ingreso=ratio, van=d2(van), tir=Decimal(str(tir)), tcea=Decimal(str(tcea * 100)),
             total_intereses=d2(total_int), total_pagado=d2(sum(d.cuota_total for d in detalles_db)), total_seguro=d2(total_seg)
         )
-        db.add(resumen)
+        db.add(resumen_obj)
         for d in detalles_db: d.codigo_simulacion = new_sim.codigo_simulacion; db.add(d)
         
         db.commit(); db.refresh(new_sim)
-        return new_sim
+        
+        # Devolver una respuesta consistente (evita problemas de lazy loading ORM)
+        return {
+            "codigo_simulacion": new_sim.codigo_simulacion,
+            "fecha_simulacion": new_sim.fecha_simulacion,
+            "fecha_inicio_prestamo": new_sim.fecha_inicio_prestamo,
+            "cuota_inicial": float(new_sim.cuota_inicial),
+            "gastos_iniciales": float(new_sim.gastos_iniciales),
+            "coste_notarial": float(new_sim.coste_notarial),
+            "coste_registral": float(new_sim.coste_registral),
+            "tasacion": float(new_sim.tasacion),
+            "comision_estudio": float(new_sim.comision_estudio),
+            "comision_activacion": float(new_sim.comision_activacion),
+            "tipo_bbp": new_sim.tipo_bbp,
+            "bono_bbp": float(new_sim.bono_bbp),
+            "tipo_tasa": new_sim.tipo_tasa,
+            "tasa_anual": float(new_sim.tasa_anual),
+            "capitalizacion": new_sim.capitalizacion,
+            "plazo_meses": new_sim.plazo_meses,
+            "tipo_gracia": new_sim.tipo_gracia,
+            "meses_gracia": new_sim.meses_gracia,
+            "seguro_desgravamen": float(new_sim.seguro_desgravamen),
+            "codigo_unidad": new_sim.codigo_unidad,
+            "direccion_unidad": unit.direccion_unidad,
+            "distrito_unidad": unit.distrito_unidad,
+            "resumen": resumen_dict,
+            "detalles": detalles_db
+        }
 
     except Exception as e:
+        import traceback
+        print(f"ERROR in run_simulation: {e}")
+        print(traceback.format_exc())
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al persistir simulación: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al procesar simulación: {str(e)}")
 
 
 @router.get("/", response_model=List[SimulationResponse])
@@ -444,13 +591,19 @@ def get_my_simulations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    from sqlalchemy.orm import joinedload
     role = current_user.rol_rel.tipo_rol
+    query = db.query(Simulation).options(
+        joinedload(Simulation.unidad_rel),
+        joinedload(Simulation.resumen)
+    )
+    
     if role == "Cliente":
-        return db.query(Simulation).filter(Simulation.codigo_cliente == current_user.codigo_usuario).all()
+        return query.filter(Simulation.codigo_cliente == current_user.codigo_usuario).all()
     elif role == "Asesor":
-        return db.query(Simulation).filter(Simulation.codigo_asesor == current_user.codigo_usuario).all()
+        return query.filter(Simulation.codigo_asesor == current_user.codigo_usuario).all()
     else:
-        return db.query(Simulation).all()
+        return query.all()
 
 
 @router.get("/{codigo_simulacion}", response_model=SimulationResponse)
@@ -459,7 +612,14 @@ def get_simulation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    sim = db.query(Simulation).filter(Simulation.codigo_simulacion == codigo_simulacion).first()
+    from sqlalchemy.orm import joinedload
+    sim = db.query(Simulation)\
+            .options(
+                joinedload(Simulation.unidad_rel),
+                joinedload(Simulation.resumen)
+            )\
+            .filter(Simulation.codigo_simulacion == codigo_simulacion)\
+            .first()
     if not sim:
         raise HTTPException(status_code=404, detail="Simulación no encontrada")
     role = current_user.rol_rel.tipo_rol
@@ -505,33 +665,129 @@ def export_simulation_excel(
     if role == "Cliente" and sim.codigo_cliente != current_user.codigo_usuario:
         raise HTTPException(status_code=403, detail="No tienes permiso para exportar esta simulación.")
 
-    data_detalles = [{
-        "N° Cuota": d.numero_cuota,
-        "Fecha Vencimiento": d.fecha_vencimiento.strftime("%d/%m/%Y"),
-        "Cuota Total": float(d.cuota_total),
-        "Interés": float(d.interes),
-        "Amortización": float(d.amortizacion),
-        "Seguro": float(d.seguro),
-        "Saldo Final": float(d.saldo_final)
-    } for d in sim.detalles]
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
 
-    res = sim.resumen
-    df_resumen = pd.DataFrame({
-        "Indicador": ["VAN", "TIR", "TCEA", "Total Intereses", "Total Pagado", "Monto Financiar"],
-        "Valor": [float(res.van), f"{float(res.tir)*100:.4f}%", f"{float(res.tcea):.2f}%",
-                  float(res.total_intereses), float(res.total_pagado), float(res.monto_financiar)]
-    })
+        res = sim.resumen
+        detalles = sorted(sim.detalles, key=lambda x: x.numero_cuota)
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
-        pd.DataFrame(data_detalles).to_excel(writer, sheet_name="Cronograma", index=False)
-    output.seek(0)
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=Simulacion_{codigo_simulacion}.xlsx"}
-    )
+        C_DARK, C_ORANGE, C_BLUE = "0F172A", "F97316", "3B82F6"
+        C_LIGHT, C_ROW2, C_WHITE = "F8FAFC", "EFF6FF", "FFFFFF"
+        C_GRAY, C_NAVY = "94A3B8", "1E293B"
+
+        def fill(c): return PatternFill("solid", fgColor=c)
+        def tb():
+            s = Side(style="thin", color="E2E8F0")
+            return Border(left=s, right=s, top=s, bottom=s)
+        def hf(size=9, color=C_WHITE): return Font(name="Calibri", bold=True, color=color, size=size)
+        def bf(bold=False, color=C_DARK, size=9): return Font(name="Calibri", bold=bold, color=color, size=size)
+        def al(h="center", v="center"): return Alignment(horizontal=h, vertical=v)
+        def mv(v): return float(v) if v is not None else 0.0
+
+        wb = Workbook()
+        # ─── Hoja 1: Resumen ────────────────────────────────────────────────────────
+        ws = wb.active; ws.title = "Resumen"
+        ws.sheet_view.showGridLines = False
+        ws.merge_cells("A1:D1")
+        ws["A1"].value = "PROPEQUITY – Propuesta Financiera"
+        ws["A1"].font = Font(name="Calibri", bold=True, color=C_WHITE, size=15)
+        ws["A1"].fill, ws["A1"].alignment = fill(C_DARK), al()
+        ws.row_dimensions[1].height = 34
+        ws.merge_cells("A2:D2")
+        ws["A2"].value = f"Simulación #{sim.codigo_simulacion}  ·  Unidad: {sim.codigo_unidad}  ·  {sim.fecha_simulacion.strftime('%d/%m/%Y') if sim.fecha_simulacion else ''}"
+        ws["A2"].font = Font(name="Calibri", bold=True, color=C_ORANGE, size=9)
+        ws["A2"].fill, ws["A2"].alignment = fill(C_NAVY), al()
+        ws.row_dimensions[2].height = 18
+        ws.row_dimensions[3].height = 6
+        for col, (txt, bg) in enumerate([("Indicador", C_BLUE), ("Valor", C_BLUE), ("Parámetro", C_ORANGE), ("Detalle", C_ORANGE)], 1):
+            c = ws.cell(row=4, column=col, value=txt)
+            c.font, c.fill, c.alignment, c.border = hf(), fill(bg), al(), tb()
+        ws.row_dimensions[4].height = 22
+        indicadores = [
+            ("Monto a Financiar",  f"S/ {mv(res.monto_financiar):,.2f}"),
+            ("Cuota Base",         f"S/ {mv(res.cuota_base):,.2f}"),
+            ("TEA",                f"{mv(res.tasa_efectiva_anual)*100:.4f}%"),
+            ("TEM",                f"{mv(res.tasa_efectiva_mensual)*100:.6f}%"),
+            ("TCEA",               f"{mv(res.tcea):.2f}%"),
+            ("VAN",                f"S/ {mv(res.van):,.2f}"),
+            ("TIR (mensual)",      f"{mv(res.tir)*100:.4f}%"),
+            ("Total Intereses",    f"S/ {mv(res.total_intereses):,.2f}"),
+            ("Total Pagado",       f"S/ {mv(res.total_pagado):,.2f}"),
+            ("Total Seguro",       f"S/ {mv(res.total_seguro):,.2f}"),
+        ]
+        parametros = [
+            ("IFI",           sim.ifi_seleccionada or "Genérico"),
+            ("Tipo de Tasa",  sim.tipo_tasa),
+            ("Tasa Anual",    f"{float(sim.tasa_anual):.2f}%"),
+            ("Plazo",         f"{sim.plazo_meses} meses"),
+            ("Tipo BBP",      sim.tipo_bbp),
+            ("Bono BBP",      f"S/ {mv(sim.bono_bbp):,.2f}"),
+            ("Tipo Gracia",   sim.tipo_gracia),
+            ("Meses Gracia",  str(sim.meses_gracia)),
+            ("Seg. Desgrav.", f"{float(sim.seguro_desgravamen):.4f}%"),
+            ("Rango BBP",     res.rango_bbp or "—"),
+        ]
+        for i, ((ind, val), (par, det)) in enumerate(zip(indicadores, parametros)):
+            row = 5 + i; bg = C_LIGHT if i % 2 == 0 else C_ROW2
+            ws.row_dimensions[row].height = 18
+            for col, (txt, bold, h) in enumerate([(ind, False, "left"), (val, True, "right"), (par, False, "left"), (det, True, "right")], 1):
+                c = ws.cell(row=row, column=col, value=txt)
+                c.font, c.fill, c.border, c.alignment = bf(bold=bold, color=C_DARK if bold else C_GRAY), fill(bg), tb(), al(h=h)
+        for col, w in zip("ABCD", [24, 22, 22, 20]): ws.column_dimensions[col].width = w
+
+        # ─── Hoja 2: Cronograma ───────────────────────────────────────────────────────
+        ws2 = wb.create_sheet("Cronograma de Pagos")
+        ws2.sheet_view.showGridLines = False
+        ws2.merge_cells("A1:H1")
+        ws2["A1"].value = "CRONOGRAMA DE PAGOS – PropEquity"
+        ws2["A1"].font = Font(name="Calibri", bold=True, color=C_WHITE, size=13)
+        ws2["A1"].fill, ws2["A1"].alignment = fill(C_DARK), al()
+        ws2.row_dimensions[1].height = 30
+        ws2.merge_cells("A2:H2")
+        ws2["A2"].value = f"Sim #{sim.codigo_simulacion}  |  S/ {mv(res.monto_financiar):,.2f}  |  {sim.plazo_meses} m  |  TEA {mv(res.tasa_efectiva_anual)*100:.2f}%  |  TCEA {mv(res.tcea):.2f}%"
+        ws2["A2"].font = Font(name="Calibri", bold=True, color=C_ORANGE, size=8)
+        ws2["A2"].fill, ws2["A2"].alignment = fill(C_NAVY), al()
+        ws2.row_dimensions[2].height = 16; ws2.row_dimensions[3].height = 6
+        hdrs = [("N°", 7), ("Fecha Pago", 13), ("Saldo Inicial", 16), ("Interés", 14),
+                ("Amortización", 14), ("Seg. Desgrav.", 14), ("Cuota Total", 14), ("Saldo Final", 16)]
+        ws2.row_dimensions[4].height = 22
+        for col, (hdr, w) in enumerate(hdrs, 1):
+            c = ws2.cell(row=4, column=col, value=hdr)
+            c.font, c.fill, c.alignment, c.border = hf(), fill(C_ORANGE), al(), tb()
+            ws2.column_dimensions[get_column_letter(col)].width = w
+        for i, d in enumerate(detalles):
+            row = 5 + i; bg = "DBEAFE" if d.numero_cuota == 0 else (C_LIGHT if i % 2 == 0 else C_ROW2)
+            ws2.row_dimensions[row].height = 15
+            row_vals = [d.numero_cuota,
+                        d.fecha_vencimiento.strftime("%d/%m/%Y") if d.fecha_vencimiento else "—",
+                        mv(d.saldo_inicio), mv(d.interes), mv(d.amortizacion),
+                        mv(d.seguro), mv(d.cuota_total), mv(d.saldo_final)]
+            for col, val in enumerate(row_vals, 1):
+                c = ws2.cell(row=row, column=col, value=val)
+                is_cuota = col == 7; is_num = col >= 3
+                c.font = bf(bold=is_cuota, color=C_ORANGE if is_cuota else C_DARK)
+                c.fill, c.border = fill(bg), tb()
+                c.alignment = al(h="right") if col >= 3 else al()
+                if is_num: c.number_format = "#,##0.00"
+        tr = 5 + len(detalles); ws2.row_dimensions[tr].height = 20
+        ws2.merge_cells(f"A{tr}:B{tr}")
+        c = ws2[f"A{tr}"]; c.value = "TOTALES"; c.font = hf(); c.fill = fill(C_DARK); c.alignment = al(); c.border = tb()
+        total_map = {4: mv(res.total_intereses), 6: mv(res.total_seguro), 7: mv(res.total_pagado)}
+        for col in range(3, 9):
+            c = ws2.cell(row=tr, column=col, value=total_map.get(col))
+            c.font, c.fill, c.border, c.alignment, c.number_format = hf(color=C_ORANGE), fill(C_DARK), tb(), al(h="right"), "#,##0.00"
+
+        output = io.BytesIO()
+        wb.save(output); output.seek(0)
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=PropEquity_Sim_{codigo_simulacion}.xlsx"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando Excel: {str(e)}")
 
 
 @router.get("/{codigo_simulacion}/export/pdf")
@@ -552,6 +808,8 @@ def export_simulation_pdf(
     elements = []
     styles = getSampleStyleSheet()
     res = sim.resumen
+
+    def mv(v): return float(v) if v is not None else 0.0
 
     elements.append(Paragraph(f"PropEquity - Propuesta Financiera #{sim.codigo_simulacion}", styles['Title']))
     elements.append(Spacer(1, 12))

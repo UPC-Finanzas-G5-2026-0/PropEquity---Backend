@@ -122,13 +122,12 @@ def seed_catalogs():
 
 
 try:
-    # ⚠️ IMPORTANTE: ESTA LÍNEA BORRA Y RECREA TODA LA BASE DE DATOS
-
-    Base.metadata.drop_all(bind=engine) 
+    # 🚨 LÍNEA COMENTADA PARA PROTEGER AL ADMIN Y TUS DATOS
+    # Base.metadata.drop_all(bind=engine) 
     
     Base.metadata.create_all(bind=engine)
     configure_mappers()
-    print("Conexión a base de datos PostgreSQL establecida y tablas sincronizadas.")
+    print("✅ Conexión a base de datos PostgreSQL establecida.")
     
     # Ejecutar la siembra automática de catálogos
     seed_catalogs()
@@ -201,16 +200,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
-
-
-@app.get("/api/v1/simulator/tem")
-def calcular_tem(tea: float):
-    """
-    Calcula la Tasa Efectiva Mensual (TEM) a partir de la Tasa Efectiva Anual (TEA).
-    """
-    tem = (1 + (tea / 100)) ** (1/12) - 1
-    return {"tem": round(tem, 6)}
-
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
 app.include_router(units.router, prefix="/api/v1/units", tags=["Unidades"])
