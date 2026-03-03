@@ -10,22 +10,30 @@ load_dotenv(ENV_PATH)
 
 from .core.config import settings
 
+# 1. Obtener la URL de la base de datos
 db_url = settings.DATABASE_URL or os.getenv("DATABASE_URL")
 
-print("\n" + "="*50)
-print(f"Buscando .env en: {ENV_PATH}")
-print(f"DATABASE_URL original encontrada: {db_url}")
-print("="*50 + "\n")
+# 2. Corrección para Render/Supabase: Cambiar "postgres://" a "postgresql://"
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
 
+# 3. Validación estricta
 if not db_url or not db_url.startswith("postgresql"):
-    raise ValueError("Se requiere una URL de base de datos PostgreSQL válida en el archivo .env")
+    raise ValueError("Se requiere una URL de base de datos PostgreSQL válida en el archivo .env o en las variables de entorno de Render")
 
+# 4. Agregar el driver de psycopg2
 if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
+# SEGURIDAD: Extraemos SOLO el host para mostrar en consola, ocultando la contraseña
 host_info = db_url.split('@')[-1] if '@' in db_url else "Desconocido"
-print(f"DATABASE ENGINE: Conectado a PostgreSQL ({host_info})")
 
+print("\n" + "="*50)
+print(f"Configuración de BD cargada de forma segura.")
+print(f"DATABASE ENGINE: Conectado a PostgreSQL en host: {host_info}")
+print("="*50 + "\n")
+
+# 5. Configuración del Motor (Excelente configuración de pool de conexiones)
 engine = create_engine(
     db_url, 
     pool_pre_ping=True,  # Verifica si la conexión está viva antes de usarla
