@@ -24,7 +24,7 @@ def seed_catalogs():
             db.add_all([
                 models.RolUsuario(tipo_rol="Cliente"),
                 models.RolUsuario(tipo_rol="Asesor"),
-                models.RolUsuario(tipo_rol="Admin")
+                models.RolUsuario(tipo_rol="Administrador")
             ])
             db.commit()
             print("Roles creados.")
