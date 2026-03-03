@@ -93,6 +93,7 @@ class User(Base):
     cliente = relationship("Client", back_populates="usuario", uselist=False)
     administrador = relationship("Administrator", back_populates="usuario", uselist=False)
     asesor_rel = relationship("Advisor", back_populates="usuario", uselist=False)
+    favoritos = relationship("UnitFavorite", back_populates="usuario_rel", cascade="all, delete-orphan")
 
 class Administrator(Base):
     __tablename__ = "administrators"
@@ -246,6 +247,7 @@ class Unit(Base):
     asesor_rel = relationship("Advisor", back_populates="unidades_gestionadas")
 
     simulaciones = relationship("Simulation", back_populates="unidad_rel")
+    usuarios_favoritos = relationship("UnitFavorite", back_populates="unidad_rel", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint('area_unidad > 0', name='check_area_positive'),
@@ -256,7 +258,6 @@ class Simulation(Base):
     __tablename__ = "simulations"
     codigo_simulacion = Column(Integer, primary_key=True, autoincrement=True)
     fecha_simulacion = Column(Date, default=date.today, nullable=False)
-    fecha_inicio_prestamo = Column(Date, nullable=True)
     cuota_inicial = Column(Numeric(12, 2), default=0.00)
     fecha_inicio_prestamo = Column(Date, nullable=False)
 
@@ -374,3 +375,12 @@ class SimulationDetail(Base):
     simulacion_rel = relationship("Simulation", back_populates="detalles")
 
     __table_args__ = (CheckConstraint('numero_cuota >= 0', name='check_numero_cuota'),)
+
+class UnitFavorite(Base):
+    __tablename__ = "unit_favorites"
+    codigo_usuario = Column(Integer, ForeignKey("users.codigo_usuario"), primary_key=True)
+    codigo_unidad = Column(Integer, ForeignKey("units.codigo_unidad"), primary_key=True)
+    fecha_agregado = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    usuario_rel = relationship("User", back_populates="favoritos")
+    unidad_rel = relationship("Unit", back_populates="usuarios_favoritos")

@@ -50,6 +50,7 @@ class UnitResponse(BaseModel):
     codigo_prospecto: Optional[int] = None
     codigo_asesor: Optional[int] = None
     foto: Optional[str] = None
+    es_favorito: bool = False
 
     class Config:
         from_attributes = True

@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import date
 from decimal import Decimal
+from app.schemas.unit import UnitResponse
 
 TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
 CATEGORIAS_INTEGRADOR = ["Menores ingresos", "Adulto mayor", "Discapacidad", "Desplazado", "Migrante retornado"]
@@ -145,21 +146,28 @@ class SimulationSummaryResponse(BaseModel):
 class SimulationDetailResponse(BaseModel):
     numero_cuota: int
     fecha_vencimiento: date
-    # saldo_inicio: Decimal        
+    fecha_pago: Optional[date] = None # Alias para el frontend
+    tea: Optional[Decimal] = None
+    tem: Optional[Decimal] = None
+    plazo_gracia: Optional[str] = "Sin Gracia"
+    saldo_inicio: Optional[Decimal] = None
+    saldo_inicial: Optional[Decimal] = None # Alias para el frontend
     interes: Decimal
-    # interes_capitalizado: Decimal 
+    interes_capitalizado: Optional[Decimal] = 0.00
     amortizacion: Decimal
     seguro: Decimal
+    seguro_desgravamen: Optional[Decimal] = None # Alias para el frontend
     cuota_total: Decimal
+    cuota: Optional[Decimal] = None # Alias para el frontend
     saldo_final: Decimal
-    # flujo_caja: Decimal         
+    flujo_caja: Optional[Decimal] = None
 
     class Config:
         from_attributes = True
 
 
 class SimulationResponse(BaseModel):
-    codigo_simulacion: int
+    codigo_simulacion: Optional[int] = None
     fecha_simulacion: date
     fecha_inicio_prestamo: date
     cuota_inicial: Decimal
@@ -187,25 +195,37 @@ class SimulationResponse(BaseModel):
     codigo_asesor: Optional[int] = None
     resumen: Optional[SimulationSummaryResponse] = None
     detalles: List[SimulationDetailResponse] = []
+    unidad_rel: Optional[UnitResponse] = None
 
-    # Campos calculados para el dashboard (se rellenan desde relaciones ORM)
+    # Campos top-level para el frontend
     direccion_unidad: Optional[str] = None
     distrito_unidad: Optional[str] = None
+    tea: Optional[Decimal] = None
+    tem: Optional[Decimal] = None
+    van: Optional[Decimal] = None
+    tir: Optional[Decimal] = None
+    tcea: Optional[Decimal] = None
     monto_financiamiento: Optional[Decimal] = None
     cuota_mensual: Optional[Decimal] = None
 
     class Config:
         from_attributes = True
 
-    @classmethod
-    def model_validate(cls, obj, *args, **kwargs):
-        instance = super().model_validate(obj, *args, **kwargs)
-        # Rellenar campos de la unidad si existe la relación ORM
-        if hasattr(obj, 'unidad_rel') and obj.unidad_rel:
-            instance.direccion_unidad = obj.unidad_rel.direccion_unidad
-            instance.distrito_unidad = obj.unidad_rel.distrito_unidad
-        # Rellenar campos financieros desde el resumen si existe
-        if hasattr(obj, 'resumen') and obj.resumen:
-            instance.monto_financiamiento = obj.resumen.monto_financiar
-            instance.cuota_mensual = obj.resumen.cuota_base
-        return instance
+    @model_validator(mode="after")
+    def populate_flattened_fields(self) -> "SimulationResponse":
+        # Rellenar campos de la unidad
+        if self.unidad_rel:
+            self.direccion_unidad = self.unidad_rel.direccion_unidad
+            self.distrito_unidad = self.unidad_rel.distrito_unidad
+        
+        # Rellenar campos financieros desde el resumen
+        if self.resumen:
+            self.monto_financiamiento = self.resumen.monto_financiar
+            self.cuota_mensual = self.resumen.cuota_base
+            self.tea = self.resumen.tasa_efectiva_anual
+            self.tem = self.resumen.tasa_efectiva_mensual
+            self.van = self.resumen.van
+            self.tir = self.resumen.tir
+            self.tcea = self.resumen.tcea
+            
+        return self
