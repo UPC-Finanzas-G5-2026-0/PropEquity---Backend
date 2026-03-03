@@ -136,3 +136,27 @@ def read_root():
         "status": "Operational",
         "environment": "Production" if os.getenv("RENDER") else "Development"
     }
+
+@app.get("/seed-roles-ahora")
+def seed_roles_ahora():
+    from .database import SessionLocal
+    from . import models
+    db = SessionLocal()
+    try:
+        # Revisa si los nombres 'Rol' y 'tipo_rol' coinciden con tu models.py
+        roles = [
+            models.Rol(tipo_rol="Cliente"),
+            models.Rol(tipo_rol="Asesor"),
+            models.Rol(tipo_rol="Admin")
+        ]
+        db.add_all(roles)
+        db.commit()
+        return {"mensaje": "¡Roles creados con éxito en la base de datos!"}
+    except Exception as e:
+        db.rollback()
+        return {
+            "error_real": str(e), 
+            "pista": "Probablemente la clase no se llame 'Rol' o la columna no sea 'tipo_rol' en tu archivo models.py"
+        }
+    finally:
+        db.close()
