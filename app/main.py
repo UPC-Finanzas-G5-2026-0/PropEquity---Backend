@@ -15,7 +15,7 @@ from .api.v1 import simulator, auth, clients, units, prospects
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- FUNCIÓN: Súper Sembrador Automático (Roles, Ingresos, Estado Civil) ---
+# --- FUNCIÓN: Súper Sembrador Automático COMPLETO ---
 def seed_catalogs():
     db = SessionLocal()
     try:
@@ -27,7 +27,7 @@ def seed_catalogs():
                 models.RolUsuario(tipo_rol="Administrador")
             ])
             db.commit()
-            print("Roles creados.")
+            print("✅ Roles creados.")
 
         # 2. Sembrar Tipos de Ingreso
         if db.query(models.TipoIngreso).count() == 0:
@@ -37,7 +37,7 @@ def seed_catalogs():
                 models.TipoIngreso(nombre_tipo_ingreso="Ahorro programado")
             ])
             db.commit()
-            print("Tipos de ingreso creados.")
+            print("✅ Tipos de ingreso creados.")
 
         # 3. Sembrar Estados Civiles
         if db.query(models.EstadoCivil).count() == 0:
@@ -49,7 +49,44 @@ def seed_catalogs():
                 models.EstadoCivil(nombre_estado_civil="Viudo")
             ])
             db.commit()
-            print("Estados civiles creados.")
+            print("✅ Estados civiles creados.")
+
+        # 4. Sembrar Monedas (NUEVO)
+        if db.query(models.Moneda).count() == 0:
+            db.add_all([
+                models.Moneda(simbolo_moneda="PEN", tipo_moneda="Soles"),
+                models.Moneda(simbolo_moneda="USD", tipo_moneda="Dólares")
+            ])
+            db.commit()
+            print("✅ Monedas creadas.")
+
+        # 5. Sembrar Estados de Registro de Unidad (NUEVO)
+        if db.query(models.EstadoRegistroUnidad).count() == 0:
+            db.add_all([
+                models.EstadoRegistroUnidad(tipo_estado="Activo"),
+                models.EstadoRegistroUnidad(tipo_estado="Inactivo")
+            ])
+            db.commit()
+            print("✅ Estados de unidad creados.")
+
+        # 6. Sembrar Modalidades de Vivienda (NUEVO)
+        if db.query(models.ModalidadVivienda).count() == 0:
+            db.add_all([
+                models.ModalidadVivienda(nombre_modalidad="Compra"),
+                models.ModalidadVivienda(nombre_modalidad="Construccion"),
+                models.ModalidadVivienda(nombre_modalidad="Mejoramiento")
+            ])
+            db.commit()
+            print("✅ Modalidades creadas.")
+
+        # 7. Sembrar Tipos de Venta (NUEVO)
+        if db.query(models.TipoVenta).count() == 0:
+            db.add_all([
+                models.TipoVenta(nombre_tipo_venta="Primera venta"),
+                models.TipoVenta(nombre_tipo_venta="Segunda venta")
+            ])
+            db.commit()
+            print("✅ Tipos de venta creados.")
 
     except Exception as e:
         db.rollback()
