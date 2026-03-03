@@ -30,12 +30,12 @@ def add_unit_json(
 ):
     """Crear unidad usando JSON con validaciones completas"""
     try:
-        # CANDADO DE SEGURIDAD (User Story)
+        # Candado de seguridad: Permitimos registro si es Admin, Asesor o Cliente (que se asigna a sí mismo)
         role = current_user.rol_rel.tipo_rol
-        if role != "Administrador":
+        if role not in ["Administrador", "Asesor", "Cliente"]:
             raise HTTPException(
                 status_code=403,
-                detail="Acceso denegado. Solo los administradores pueden registrar nuevas unidades."
+                detail="Acceso denegado. El rol no tiene permisos de registro."
             )
 
         # VALIDACIONES DE NEGOCIO - DS 004-2025-VIVIENDA
@@ -150,12 +150,12 @@ def add_unit(
 ):
     """Crear unidad usando Form data (con foto en Cloudinary)"""
     try:
-        # 🚨 CANDADO DE SEGURIDAD
+        # Candado de seguridad: Registro permitido para todos los roles válidos
         role = current_user.rol_rel.tipo_rol
-        if role != "Administrador":
+        if role not in ["Administrador", "Asesor", "Cliente"]:
             raise HTTPException(
                 status_code=403,
-                detail="Acceso denegado. Solo los administradores pueden registrar nuevas unidades."
+                detail="Acceso denegado. El rol no tiene permisos de registro."
             )
 
         # VALIDACIONES DE NEGOCIO
@@ -238,10 +238,71 @@ def add_unit(
 
 @router.get("/", response_model=list[UnitResponse])
 def get_units(
+    solo_mias: bool = False,
+    solo_mis_y_favoritos: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return db.query(Unit).all()
+    from app.models import UnitFavorite
+    role = current_user.rol_rel.tipo_rol
+    user_id = current_user.codigo_usuario
+    
+    query = db.query(Unit)
+    
+    # Si se pide solo mis unidades (Catálogo Personal)
+    if solo_mias:
+        if role == "Cliente":
+            query = query.filter(Unit.codigo_cliente == user_id)
+        elif role == "Asesor":
+            query = query.filter(Unit.codigo_asesor == user_id)
+
+    # Si se pide solo mis unidades + favoritos (Para el Simulador)
+    elif solo_mis_y_favoritos:
+        from sqlalchemy import or_
+        # Obtenemos IDs de sus favoritos
+        favorites_ids = [f.codigo_unidad for f in db.query(UnitFavorite).filter(UnitFavorite.codigo_usuario == user_id).all()]
+        
+        if role == "Cliente":
+            query = query.filter(or_(Unit.codigo_cliente == user_id, Unit.codigo_unidad.in_(favorites_ids)))
+        elif role == "Asesor":
+            query = query.filter(or_(Unit.codigo_asesor == user_id, Unit.codigo_unidad.in_(favorites_ids)))
+        else:
+            # Para Admin, mostrar todas por ahora o las suyas si tuviera
+            pass
+
+    units = query.all()
+    
+    # Marcar 'es_favorito' en cada unidad
+    fav_ids = set(f.codigo_unidad for f in db.query(UnitFavorite).filter(UnitFavorite.codigo_usuario == user_id).all())
+    for u in units:
+        u.es_favorito = u.codigo_unidad in fav_ids
+        
+    return units
+
+
+@router.post("/{codigo_unidad}/favorite")
+def toggle_favorite(
+    codigo_unidad: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    from app.models import UnitFavorite
+    user_id = current_user.codigo_usuario
+    
+    existing = db.query(UnitFavorite).filter(
+        UnitFavorite.codigo_usuario == user_id,
+        UnitFavorite.codigo_unidad == codigo_unidad
+    ).first()
+    
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"success": True, "message": "Eliminado de favoritos", "es_favorito": False}
+    else:
+        new_fav = UnitFavorite(codigo_usuario=user_id, codigo_unidad=codigo_unidad)
+        db.add(new_fav)
+        db.commit()
+        return {"success": True, "message": "Agregado a favoritos", "es_favorito": True}
 
 
 @router.get("/client/{codigo_cliente}", response_model=list[UnitResponse])
@@ -387,14 +448,10 @@ def update_unit(
         if not unit:
             raise HTTPException(status_code=404, detail="Unidad no encontrada")
 
+        # VALIDACIÓN DE PERMISOS (Restaurado a acceso abierto para roles válidos)
         role = current_user.rol_rel.tipo_rol
-        user_id = current_user.codigo_usuario
-
-        # VALIDACIÓN DE PERMISOS
-        if role == "Cliente" and unit.codigo_cliente != user_id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta unidad.")
-        if role == "Asesor" and unit.codigo_asesor != user_id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta unidad.")
+        if role not in ["Administrador", "Asesor", "Cliente"]:
+            raise HTTPException(status_code=403, detail="No tienes permiso para modificar unidades.")
         
         # Mapear campos
         if direccion_unidad is not None: unit.direccion_unidad = direccion_unidad
@@ -443,11 +500,7 @@ def update_unit_json(
             raise HTTPException(status_code=404, detail="Unidad no encontrada")
 
         role = current_user.rol_rel.tipo_rol
-        user_id = current_user.codigo_usuario
-
-        if role == "Cliente" and unit.codigo_cliente != user_id:
-            raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta unidad.")
-        if role == "Asesor" and unit.codigo_asesor != user_id:
+        if role not in ["Administrador", "Asesor", "Cliente"]:
             raise HTTPException(status_code=403, detail="No tienes permiso para modificar esta unidad.")
 
         update_data = unit_update.model_dump(exclude_unset=True)
@@ -473,12 +526,10 @@ def delete_unit(
 ):
     try:
         role = current_user.rol_rel.tipo_rol
-        if role != "Administrador":
-            raise HTTPException(status_code=403, detail="Acceso denegado. Solo los administradores pueden eliminar unidades.")
-            
+        if role not in ["Administrador", "Asesor", "Cliente"]:
+             raise HTTPException(status_code=403, detail="No tienes permiso para eliminar unidades.")
+
         unit = db.query(Unit).filter(Unit.codigo_unidad == codigo_unidad).first()
-        if not unit:
-            raise HTTPException(status_code=404, detail="Unidad no encontrada")
             
         db.delete(unit)
         db.commit()

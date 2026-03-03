@@ -27,7 +27,7 @@ def seed_catalogs():
                 models.RolUsuario(tipo_rol="Administrador")
             ])
             db.commit()
-            print("✅ Roles creados.")
+            print("Roles creados.")
 
         # 2. Sembrar Tipos de Ingreso
         if db.query(models.TipoIngreso).count() == 0:
@@ -37,7 +37,7 @@ def seed_catalogs():
                 models.TipoIngreso(nombre_tipo_ingreso="Ahorro programado")
             ])
             db.commit()
-            print("✅ Tipos de ingreso creados.")
+            print("Tipos de ingreso creados.")
 
         # 3. Sembrar Estados Civiles
         if db.query(models.EstadoCivil).count() == 0:
@@ -49,7 +49,7 @@ def seed_catalogs():
                 models.EstadoCivil(nombre_estado_civil="Viudo")
             ])
             db.commit()
-            print("✅ Estados civiles creados.")
+            print("Estados civiles creados.")
 
         # 4. Sembrar Monedas
         if db.query(models.Moneda).count() == 0:
@@ -58,7 +58,7 @@ def seed_catalogs():
                 models.Moneda(simbolo_moneda="USD", tipo_moneda="Dólares")
             ])
             db.commit()
-            print("✅ Monedas creadas.")
+            print("Monedas creadas.")
 
         # 5. Sembrar Estados de Registro de Unidad
         if db.query(models.EstadoRegistroUnidad).count() == 0:
@@ -67,7 +67,7 @@ def seed_catalogs():
                 models.EstadoRegistroUnidad(tipo_estado="Inactivo")
             ])
             db.commit()
-            print("✅ Estados de unidad creados.")
+            print("Estados de unidad creados.")
 
         # 6. Sembrar Modalidades de Vivienda
         if db.query(models.ModalidadVivienda).count() == 0:
@@ -77,7 +77,7 @@ def seed_catalogs():
                 models.ModalidadVivienda(nombre_modalidad="Mejoramiento")
             ])
             db.commit()
-            print("✅ Modalidades creadas.")
+            print("Modalidades creadas.")
 
         # 7. Sembrar Tipos de Venta
         if db.query(models.TipoVenta).count() == 0:
@@ -86,7 +86,7 @@ def seed_catalogs():
                 models.TipoVenta(nombre_tipo_venta="Segunda venta")
             ])
             db.commit()
-            print("✅ Tipos de venta creados.")
+            print("Tipos de venta creados.")
 
         # 8. Sembrar Parámetros de Bancos (IFI) - NUEVO
         if db.query(models.CreditoIFI).count() == 0:
@@ -99,7 +99,7 @@ def seed_catalogs():
             ]
             db.add_all(bancos)
             db.commit()
-            print("✅ Parámetros de bancos (IFI) creados.")
+            print("Parámetros de bancos (IFI) creados.")
 
         # 9. Sembrar Bonos MiVivienda (BBP) - NUEVO
         if db.query(models.BonoBBP).count() == 0:
@@ -112,7 +112,7 @@ def seed_catalogs():
             ]
             db.add_all(bonos)
             db.commit()
-            print("✅ Bonos BBP creados.")
+            print("Bonos BBP creados.")
 
     except Exception as e:
         db.rollback()
@@ -123,12 +123,11 @@ def seed_catalogs():
 
 # --- Inicialización de Base de Datos ---
 try:
-    # 🚨 LÍNEA COMENTADA PARA PROTEGER AL ADMIN Y TUS DATOS
     # Base.metadata.drop_all(bind=engine) 
     
     Base.metadata.create_all(bind=engine)
     configure_mappers()
-    print("✅ Conexión a base de datos PostgreSQL establecida.")
+    print("Conexión a base de datos PostgreSQL establecida.")
     
     # Ejecutar la siembra automática de catálogos
     seed_catalogs()
@@ -165,9 +164,27 @@ app.add_middleware(
 # --- Exception Handlers ---
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Convertir todos los detalles de error a strings para evitar problemas de serialización
+    def stringify_exceptions(obj):
+        if isinstance(obj, Exception):
+            return str(obj)
+        elif isinstance(obj, dict):
+            return {k: stringify_exceptions(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [stringify_exceptions(v) for v in obj]
+        else:
+            return obj
+            
+    error_details = stringify_exceptions(exc.errors())
     return JSONResponse(
         status_code=422,
-        content=jsonable_encoder({"message": "Error de validación de datos", "detail": exc.errors()})
+        content={"message": "Error de validación de datos", "detail": error_details},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        }
     )
 
 @app.exception_handler(ValueError)
@@ -183,6 +200,16 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # --- Routers ---
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
+
+# Endpoint público para TEM, sin autenticación
+@app.get("/api/v1/simulator/tem")
+def calcular_tem(tea: float):
+    """
+    Calcula la Tasa Efectiva Mensual (TEM) a partir de la Tasa Efectiva Anual (TEA).
+    """
+    tem = (1 + (tea / 100)) ** (1/12) - 1
+    return {"tem": round(tem, 6)}
+
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
 app.include_router(units.router, prefix="/api/v1/units", tags=["Unidades"])

@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import date
 from decimal import Decimal
+from app.schemas.unit import UnitResponse
 
 TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
 CATEGORIAS_INTEGRADOR = ["Menores ingresos", "Adulto mayor", "Discapacidad", "Desplazado", "Migrante retornado"]
@@ -10,8 +11,14 @@ IFIS = ["BCP", "BBVA", "Interbank", "Pichincha", "GNB"]
 class SimulationBase(BaseModel):
     # Cuota inicial y gastos — validación cruzada con precio_venta en el endpoint
     cuota_inicial: float = Field(default=0.00, ge=0)
-    gastos_cierre: float = Field(default=0.00, ge=0)
-    # gastos_cierre: 0% a 5% del precio_venta (tasación, notaría, registros, alcabala)
+    coste_notarial: float = Field(default=0.00, ge=0)
+    coste_registral: float = Field(default=0.00, ge=0)
+    tasacion: float = Field(default=0.00, ge=0)
+    comision_estudio: float = Field(default=0.00, ge=0)
+    comision_activacion: float = Field(default=0.00, ge=0)
+    
+    gastos_iniciales: float = Field(default=0.00, ge=0)
+    # Total de gastos (notaría, registros, tasación, comisiones)
 
     # BBP
     tipo_bbp: str = Field(default="Ninguno")
@@ -28,7 +35,7 @@ class SimulationBase(BaseModel):
     tipo_cambio: float = Field(default=3.75, ge=2.0, le=5.0)  # Cambiar de Decimal a float
 
     # Plazo
-    plazo_meses: int = Field(..., ge=60, le=240)
+    plazo_meses: int = Field(...)
 
     # Gracia
     tipo_gracia: str = Field(default="Ninguno")     # "Ninguno" / "Parcial" / "Total"
@@ -45,6 +52,15 @@ class SimulationBase(BaseModel):
 
     # Fecha
     fecha_inicio_prestamo: Optional[date] = None
+
+    @field_validator("plazo_meses")
+    @classmethod
+    def validate_plazo_meses(cls, v):
+        if v < 60:
+            raise ValueError("El plazo mínimo permitido es de 60 meses (5 años).")
+        if v > 240:
+            raise ValueError("El plazo máximo permitido es de 240 meses (20 años).")
+        return v
 
     @field_validator("tipo_bbp")
     @classmethod
@@ -130,25 +146,37 @@ class SimulationSummaryResponse(BaseModel):
 class SimulationDetailResponse(BaseModel):
     numero_cuota: int
     fecha_vencimiento: date
-    # saldo_inicio: Decimal        
+    fecha_pago: Optional[date] = None # Alias para el frontend
+    tea: Optional[Decimal] = None
+    tem: Optional[Decimal] = None
+    plazo_gracia: Optional[str] = "Sin Gracia"
+    saldo_inicio: Optional[Decimal] = None
+    saldo_inicial: Optional[Decimal] = None # Alias para el frontend
     interes: Decimal
-    # interes_capitalizado: Decimal 
+    interes_capitalizado: Optional[Decimal] = 0.00
     amortizacion: Decimal
     seguro: Decimal
+    seguro_desgravamen: Optional[Decimal] = None # Alias para el frontend
     cuota_total: Decimal
+    cuota: Optional[Decimal] = None # Alias para el frontend
     saldo_final: Decimal
-    # flujo_caja: Decimal         
+    flujo_caja: Optional[Decimal] = None
 
     class Config:
         from_attributes = True
 
 
 class SimulationResponse(BaseModel):
-    codigo_simulacion: int
+    codigo_simulacion: Optional[int] = None
     fecha_simulacion: date
     fecha_inicio_prestamo: date
     cuota_inicial: Decimal
-    gastos_cierre: Decimal
+    gastos_iniciales: Decimal
+    coste_notarial: Decimal
+    coste_registral: Decimal
+    tasacion: Decimal
+    comision_estudio: Decimal
+    comision_activacion: Decimal
     tipo_bbp: str
     bono_bbp: Decimal
     categoria_integrador: Optional[str] = None
@@ -167,6 +195,37 @@ class SimulationResponse(BaseModel):
     codigo_asesor: Optional[int] = None
     resumen: Optional[SimulationSummaryResponse] = None
     detalles: List[SimulationDetailResponse] = []
+    unidad_rel: Optional[UnitResponse] = None
+
+    # Campos top-level para el frontend
+    direccion_unidad: Optional[str] = None
+    distrito_unidad: Optional[str] = None
+    tea: Optional[Decimal] = None
+    tem: Optional[Decimal] = None
+    van: Optional[Decimal] = None
+    tir: Optional[Decimal] = None
+    tcea: Optional[Decimal] = None
+    monto_financiamiento: Optional[Decimal] = None
+    cuota_mensual: Optional[Decimal] = None
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode="after")
+    def populate_flattened_fields(self) -> "SimulationResponse":
+        # Rellenar campos de la unidad
+        if self.unidad_rel:
+            self.direccion_unidad = self.unidad_rel.direccion_unidad
+            self.distrito_unidad = self.unidad_rel.distrito_unidad
+        
+        # Rellenar campos financieros desde el resumen
+        if self.resumen:
+            self.monto_financiamiento = self.resumen.monto_financiar
+            self.cuota_mensual = self.resumen.cuota_base
+            self.tea = self.resumen.tasa_efectiva_anual
+            self.tem = self.resumen.tasa_efectiva_mensual
+            self.van = self.resumen.van
+            self.tir = self.resumen.tir
+            self.tcea = self.resumen.tcea
+            
+        return self
