@@ -143,20 +143,26 @@ def seed_roles_ahora():
     from . import models
     db = SessionLocal()
     try:
-        # Revisa si los nombres 'Rol' y 'tipo_rol' coinciden con tu models.py
-        roles = [
-            models.Rol(tipo_rol="Cliente"),
-            models.Rol(tipo_rol="Asesor"),
-            models.Rol(tipo_rol="Admin")
-        ]
-        db.add_all(roles)
+        if hasattr(models, 'Role'):
+            RoleClass = models.Role
+        elif hasattr(models, 'Rol'):
+            RoleClass = models.Rol
+        else:
+            return {"error": "No encontré ni 'Role' ni 'Rol' en models.py. Revisa cómo escribiste la clase."}
+
+        r1 = RoleClass(tipo_rol="Cliente")
+        r2 = RoleClass(tipo_rol="Asesor")
+        r3 = RoleClass(tipo_rol="Admin")
+        
+        db.add_all([r1, r2, r3])
         db.commit()
-        return {"mensaje": "¡Roles creados con éxito en la base de datos!"}
+        return {"mensaje": f"¡Roles creados con éxito usando la clase {RoleClass.__name__}!"}
+    
     except Exception as e:
         db.rollback()
         return {
-            "error_real": str(e), 
-            "pista": "Probablemente la clase no se llame 'Rol' o la columna no sea 'tipo_rol' en tu archivo models.py"
+            "error_detectado": str(e),
+            "ayuda": "Si el error dice 'unexpected keyword argument tipo_rol', cambia 'tipo_rol' por 'nombre' en este script."
         }
     finally:
         db.close()
