@@ -60,11 +60,12 @@ def seed_catalogs():
 
 # --- Inicialización de Base de Datos ---
 try:
-    # Base.metadata.drop_all(bind=engine) # MANTENER COMENTADO
+    #  Esto vaciará la BD vieja para aplicar los cambios limpios
+    Base.metadata.drop_all(bind=engine) 
     
     Base.metadata.create_all(bind=engine)
     configure_mappers()
-    print("Conexión a base de datos PostgreSQL establecida.")
+    print("Conexión a base de datos PostgreSQL establecida y reiniciada.")
     
     # Ejecutar la siembra automática de catálogos
     seed_catalogs()
@@ -118,7 +119,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # --- Routers ---
-app.include_router(auth.router, prefix="/api/v1/auth", tags=["Autenticación"])
+app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(simulator.router, prefix="/api/v1/simulator", tags=["Simulación"])
 app.include_router(clients.router, prefix="/api/v1/clients", tags=["Clientes"])
 app.include_router(units.router, prefix="/api/v1/units", tags=["Unidades"])
