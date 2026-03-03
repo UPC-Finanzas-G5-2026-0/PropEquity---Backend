@@ -606,6 +606,23 @@ def get_my_simulations(
         return query.all()
 
 
+@router.get("/tem")
+def convert_tea_to_tem(
+    tea: float = Query(..., description="Tasa Efectiva Anual en porcentaje (ej: 10 para 10%)"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Convierte una TEA (%) a TEM (%).
+    Ejemplo: GET /simulator/tem?tea=10  →  { "tea": 10.0, "tem": 0.7974... }
+    """
+    tea_dec = Decimal(str(tea)) / Decimal("100")
+    tem_dec = (1 + tea_dec) ** (Decimal("1") / Decimal("12")) - 1
+    return {
+        "tea": float(tea),
+        "tem": float(tem_dec * 100)
+    }
+
+
 @router.get("/{codigo_simulacion}", response_model=SimulationResponse)
 def get_simulation(
     codigo_simulacion: int,
