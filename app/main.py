@@ -8,55 +8,53 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import configure_mappers
 
 # Importaciones locales
-from .database import engine, Base, SessionLocal # AGREGADO SessionLocal
+from .database import engine, Base, SessionLocal 
 from . import models 
 from .api.v1 import simulator, auth, clients, units, prospects
 
 # SEGURIDAD PARA RENDER: Crear carpeta 'uploads' si no existe.
-# Sin esto, app.mount fallará si la carpeta no está en el repo de Git.
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
-# --- NUEVA FUNCIÓN: Sembrador automático de roles ---
+# --- FUNCIÓN: Sembrador automático de roles (Ajustada a RolUsuario) ---
 def seed_roles():
     db = SessionLocal()
     try:
-        # Revisa si la tabla ya tiene roles
-        roles_existentes = db.query(models.Rol).count() 
+        # Usamos models.RolUsuario que es el nombre real en tu models.py
+        roles_existentes = db.query(models.RolUsuario).count() 
         
         if roles_existentes == 0:
-            print("🌱 La tabla de roles está vacía. Sembrando roles por defecto...")
+            print("🌱 Base de datos vacía. Sembrando roles iniciales...")
             roles_basicos = [
-                models.Rol(tipo_rol="Cliente"),
-                models.Rol(tipo_rol="Asesor"),
-                models.Rol(tipo_rol="Admin")
+                models.RolUsuario(tipo_rol="Cliente"),
+                models.RolUsuario(tipo_rol="Asesor"),
+                models.RolUsuario(tipo_rol="Admin")
             ]
             db.add_all(roles_basicos)
             db.commit()
             print("✅ Roles 'Cliente', 'Asesor' y 'Admin' creados exitosamente.")
         else:
-            print(f"✔️ Ya existen {roles_existentes} roles en la base de datos.")
+            print(f"✔️ La tabla roles_usuario ya cuenta con {roles_existentes} registros.")
     except Exception as e:
-        print(f"⚠️ Error al intentar crear los roles: {e}")
+        db.rollback()
+        print(f"⚠️ Error al intentar sembrar los roles: {e}")
     finally:
         db.close()
-# ----------------------------------------------------
 
-# Crear tablas e inicializar mappers
+# --- Inicialización de Base de Datos ---
 try:
-    # ¡LÍNEA COMENTADA! Ya no borraremos tus datos en cada reinicio
+    # Mantener comentado para evitar pérdida de datos en producción
     # Base.metadata.drop_all(bind=engine) 
     
-    # Crea las tablas nuevecitas si no existen
     Base.metadata.create_all(bind=engine)
     configure_mappers()
-    print("Tablas de base de datos listas.")
+    print("✅ Conexión a base de datos establecida.")
     
-    # Ejecutamos el sembrador de roles
+    # Ejecutar la siembra automática
     seed_roles()
     
 except Exception as e:
-    print(f"Alerta de Base de Datos: {e}")
+    print(f"❌ Error crítico de Base de Datos: {e}")
 
 app = FastAPI(
     title="PropEquity API",
@@ -64,13 +62,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Evitar problemas de redirección con barras diagonales (trailing slashes)
 app.router.redirect_slashes = False
 
 # Montar archivos estáticos
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Configuración de CORS optimizada
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -80,17 +77,16 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "https://propequity.vercel.app", 
     ],
-    # Acepta cualquier URL dinámica de previsualización de Vercel
     allow_origin_regex=r"https://.*\.vercel\.app", 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# --- Manejadores de Excepciones (Exception Handlers) ---
+
+# --- Exception Handlers ---
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Maneja errores de validación de esquemas Pydantic"""
     return JSONResponse(
         status_code=422,
         content=jsonable_encoder({
@@ -101,23 +97,18 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
-    """Maneja errores de lógica de negocio (ValueErrors)"""
     return JSONResponse(
         status_code=422,
-        content={
-            "message": "Error de validación", 
-            "detail": str(exc)
-        }
+        content={"message": "Error de lógica de negocio", "detail": str(exc)}
     )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Manejador global para evitar que la API devuelva errores no controlados"""
     return JSONResponse(
         status_code=500,
         content={
             "message": "Internal Server Error", 
-            "detail": str(exc) if os.getenv("DEBUG") == "true" else "Ocurrió un error inesperado en el servidor."
+            "detail": str(exc) if os.getenv("DEBUG") == "true" else "Ocurrió un error inesperado."
         }
     )
 
@@ -131,38 +122,7 @@ app.include_router(prospects.router, prefix="/api/v1/prospects", tags=["Prospect
 @app.get("/")
 def read_root():
     return {
-        "message": "Bienvenido a PropEquity API - Gestión Inmobiliaria",
-        "docs": "/docs",
-        "status": "Operational",
-        "environment": "Production" if os.getenv("RENDER") else "Development"
+        "message": "PropEquity API activa",
+        "environment": "Production" if os.getenv("RENDER") else "Development",
+        "docs": "/docs"
     }
-
-@app.get("/seed-roles-ahora")
-def seed_roles_ahora():
-    from .database import SessionLocal
-    from . import models
-    db = SessionLocal()
-    try:
-        if hasattr(models, 'Role'):
-            RoleClass = models.Role
-        elif hasattr(models, 'Rol'):
-            RoleClass = models.Rol
-        else:
-            return {"error": "No encontré ni 'Role' ni 'Rol' en models.py. Revisa cómo escribiste la clase."}
-
-        r1 = RoleClass(tipo_rol="Cliente")
-        r2 = RoleClass(tipo_rol="Asesor")
-        r3 = RoleClass(tipo_rol="Admin")
-        
-        db.add_all([r1, r2, r3])
-        db.commit()
-        return {"mensaje": f"¡Roles creados con éxito usando la clase {RoleClass.__name__}!"}
-    
-    except Exception as e:
-        db.rollback()
-        return {
-            "error_detectado": str(e),
-            "ayuda": "Si el error dice 'unexpected keyword argument tipo_rol', cambia 'tipo_rol' por 'nombre' en este script."
-        }
-    finally:
-        db.close()
