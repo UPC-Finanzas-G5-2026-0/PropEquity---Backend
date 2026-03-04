@@ -368,13 +368,13 @@ def run_simulation(
     factor = (tasa_para_factor * (1 + tasa_para_factor) ** n_reales) / ((1 + tasa_para_factor) ** n_reales - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
-    flujos_caja = [float(monto_financiar) - float(payload.gastos_iniciales)]
+    flujos_caja = [float(monto_financiar)]
     total_int, total_seg = Decimal("0"), Decimal("0")
 
     detalles_db = []
     saldo = monto_financiar
     
-    flujo_0 = monto_financiar - Decimal(str(payload.gastos_iniciales))
+    flujo_0 = monto_financiar
     detalles_db.append(SimulationDetail(
         numero_cuota=0,
         saldo_inicio=d2(monto_financiar),
