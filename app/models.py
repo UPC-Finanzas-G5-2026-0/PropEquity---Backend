@@ -376,6 +376,7 @@ class SimulationDetail(Base):
     cuota_total = Column(Numeric(12, 2))
     interes = Column(Numeric(12, 2))
     interes_capitalizado = Column(Numeric(12, 2), default=0.00)
+    amortizacion = Column(Numeric(12, 2), default=0.00)
     seguro = Column(Numeric(12, 2))
     comision_periodica = Column(Numeric(12, 2), default=Decimal("0.00"))
     portes = Column(Numeric(12, 2), default=Decimal("0.00"))
