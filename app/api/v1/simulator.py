@@ -370,6 +370,7 @@ def run_simulation(
         saldo_anterior = saldo
         int_periodo = saldo_anterior * tem
         seguro_periodo = saldo_anterior * seguro_tasa
+        gastos_periodicos = Decimal(str(payload.comision_periodica)) + Decimal(str(payload.portes)) + Decimal(str(payload.gastos_administracion))
         interes_cap = Decimal("0") 
         
         if i <= m_gracia:
@@ -378,13 +379,13 @@ def run_simulation(
                 interes_cap = int_periodo
                 amort_periodo = Decimal("0")
                 seguro_pago = Decimal("0")
-                cuota_t = Decimal("0")
+                cuota_t = gastos_periodicos
                 saldo = saldo_anterior + interes_cap
             else: # Parcial
                 # Gracia Parcial: Paga interés únicamente (sin seguro según aadce4c)
                 amort_periodo = Decimal("0")
                 seguro_pago = Decimal("0")
-                cuota_t = int_periodo
+                cuota_t = int_periodo + gastos_periodicos
                 saldo = saldo_anterior
                 
             if i == m_gracia: 
@@ -395,7 +396,7 @@ def run_simulation(
             # Sistema Francés con Tasa Combinada: Cuota Total es constante
             seguro_pago = seguro_periodo
             amort_periodo = cuota_base - int_periodo - seguro_pago
-            cuota_t = cuota_base
+            cuota_t = cuota_base + gastos_periodicos
             saldo = saldo_anterior - amort_periodo
             
             if i == n_total and saldo != Decimal("0"):
@@ -411,6 +412,7 @@ def run_simulation(
             numero_cuota=i,
             interes=d2(int_periodo),
             seguro=d2(seguro_pago),
+            comisiones=d2(gastos_periodicos),
             amortizacion=d2(amort_periodo), 
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
@@ -521,6 +523,9 @@ def run_simulation(
                 "tipo_gracia": payload.tipo_gracia,
                 "meses_gracia": payload.meses_gracia,
                 "seguro_desgravamen": float(payload.seguro_desgravamen),
+                "comision_periodica": float(payload.comision_periodica),
+                "portes": float(payload.portes),
+                "gastos_administracion": float(payload.gastos_administracion),
                 "codigo_unidad": payload.codigo_unidad,
                 "direccion_unidad": unit.direccion_unidad,
                 "distrito_unidad": unit.distrito_unidad,
@@ -542,6 +547,9 @@ def run_simulation(
             tasa_anual=payload.tasa_anual, plazo_meses=payload.plazo_meses,
             tipo_gracia=payload.tipo_gracia, meses_gracia=payload.meses_gracia,
             seguro_desgravamen=payload.seguro_desgravamen, 
+            comision_periodica=payload.comision_periodica,
+            portes=payload.portes,
+            gastos_administracion=payload.gastos_administracion,
             codigo_unidad=payload.codigo_unidad, codigo_cliente=payload.codigo_cliente,
             codigo_prospecto=payload.codigo_prospecto, codigo_asesor=payload.codigo_asesor
         )
@@ -578,6 +586,9 @@ def run_simulation(
             "bono_bbp": float(new_sim.bono_bbp),
             "tipo_tasa": new_sim.tipo_tasa,
             "tasa_anual": float(new_sim.tasa_anual),
+            "comision_periodica": float(new_sim.comision_periodica),
+            "portes": float(new_sim.portes),
+            "gastos_administracion": float(new_sim.gastos_administracion),
             "capitalizacion": new_sim.capitalizacion,
             "plazo_meses": new_sim.plazo_meses,
             "tipo_gracia": new_sim.tipo_gracia,

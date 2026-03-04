@@ -271,6 +271,11 @@ class Simulation(Base):
     gastos_iniciales = Column(Numeric(12, 2), default=Decimal("0.00"))
     # Es la suma de los 5 campos anteriores. >= 0 y <= 5% del precio_venta.
 
+    # Gastos periódicos (Mensuales)
+    comision_periodica = Column(Numeric(12, 2), default=Decimal("0.00"))
+    portes = Column(Numeric(12, 2), default=Decimal("0.00"))
+    gastos_administracion = Column(Numeric(12, 2), default=Decimal("0.00"))
+
     # BBP
     tipo_bbp = Column(String(25), default="Ninguno")
     # "Ninguno" / "Tradicional" / "Sostenible" / "Integrador Tradicional" / "Integrador Sostenible"
@@ -368,6 +373,7 @@ class SimulationDetail(Base):
     interes_capitalizado = Column(Numeric(12, 2), default=0.00)
     amortizacion = Column(Numeric(12, 2))
     seguro = Column(Numeric(12, 2))
+    comisiones = Column(Numeric(12, 2), default=Decimal("0.00"))
     saldo_final = Column(Numeric(12, 2))
     flujo_caja = Column(Numeric(12, 2))
     fecha_vencimiento = Column(Date, nullable=True) 

@@ -20,6 +20,11 @@ class SimulationBase(BaseModel):
     gastos_iniciales: float = Field(default=0.00, ge=0)
     # Total de gastos (notaría, registros, tasación, comisiones)
 
+    # Gastos periódicos (Mensuales)
+    comision_periodica: float = Field(default=0.00, ge=0)
+    portes: float = Field(default=0.00, ge=0)
+    gastos_administracion: float = Field(default=0.00, ge=0)
+
     # BBP
     tipo_bbp: str = Field(default="Ninguno")
     categoria_integrador: Optional[str] = None
@@ -157,6 +162,7 @@ class SimulationDetailResponse(BaseModel):
     amortizacion: Decimal
     seguro: Decimal
     seguro_desgravamen: Optional[Decimal] = None # Alias para el frontend
+    comisiones: Decimal
     cuota_total: Decimal
     cuota: Optional[Decimal] = None # Alias para el frontend
     saldo_final: Decimal
@@ -177,6 +183,9 @@ class SimulationResponse(BaseModel):
     tasacion: Decimal
     comision_estudio: Decimal
     comision_activacion: Decimal
+    comision_periodica: Decimal
+    portes: Decimal
+    gastos_administracion: Decimal
     tipo_bbp: str
     bono_bbp: Decimal
     categoria_integrador: Optional[str] = None
