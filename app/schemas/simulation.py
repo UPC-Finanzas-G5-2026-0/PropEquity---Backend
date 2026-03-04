@@ -155,25 +155,25 @@ class SimulationSummaryResponse(BaseModel):
 
 class SimulationDetailResponse(BaseModel):
     numero_cuota: int
-    fecha_vencimiento: date
+    fecha_vencimiento: Optional[date] = None
     fecha_pago: Optional[date] = None # Alias para el frontend
     tea: Optional[Decimal] = None
     tem: Optional[Decimal] = None
     plazo_gracia: Optional[str] = "Sin Gracia"
     saldo_inicio: Optional[Decimal] = None
     saldo_inicial: Optional[Decimal] = None # Alias para el frontend
-    interes: Decimal
-    interes_capitalizado: Optional[Decimal] = 0.00
-    amortizacion: Decimal
-    seguro: Decimal
+    interes: Optional[Decimal] = Decimal("0.00")
+    interes_capitalizado: Optional[Decimal] = Decimal("0.00")
+    amortizacion: Optional[Decimal] = Decimal("0.00")
+    seguro: Optional[Decimal] = Decimal("0.00")
     seguro_desgravamen: Optional[Decimal] = None # Alias para el frontend
     comision_periodica: Optional[Decimal] = Decimal("0.00")
     portes: Optional[Decimal] = Decimal("0.00")
     gastos_administracion: Optional[Decimal] = Decimal("0.00")
-    cuota_total: Decimal
+    cuota_total: Optional[Decimal] = Decimal("0.00")
 
     cuota: Optional[Decimal] = None # Alias para el frontend
-    saldo_final: Decimal
+    saldo_final: Optional[Decimal] = Decimal("0.00")
     flujo_caja: Optional[Decimal] = None
 
     class Config:
