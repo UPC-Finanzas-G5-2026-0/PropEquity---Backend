@@ -120,9 +120,8 @@ def seed_catalogs():
         db.close()
 
 
-
 try:
-    # 🚨 LÍNEA COMENTADA PARA PROTEGER AL ADMIN Y TUS DATOS
+    # LÍNEA COMENTADA PARA PROTEGER AL ADMIN Y TUS DATOS
     # Base.metadata.drop_all(bind=engine) 
     
     Base.metadata.create_all(bind=engine)
@@ -145,7 +144,7 @@ app.router.redirect_slashes = False
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# CORS
+# CORS ACTUALIZADO Y CORREGIDO
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -154,6 +153,7 @@ app.add_middleware(
         "http://localhost:3003",
         "http://127.0.0.1:3000",
         "https://propequity.vercel.app", 
+        "https://propequity-frontend.vercel.app" # <-- URL EXACTA AÑADIDA
     ],
     allow_origin_regex=r"https://.*\.vercel\.app", 
     allow_credentials=True,
@@ -176,23 +176,19 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             return obj
             
     error_details = stringify_exceptions(exc.errors())
+    
+    # SE ELIMINARON LOS HEADERS MANUALES QUE ROMPÍAN EL CORS
     return JSONResponse(
         status_code=422,
-        content={"message": "Error de validación de datos", "detail": error_details},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*"
-        }
+        content={"message": "Error de validación de datos", "detail": error_details}
     )
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
+    # 🚨 SE ELIMINARON LOS HEADERS MANUALES QUE ROMPÍAN EL CORS
     return JSONResponse(
         status_code=422, 
-        content={"message": "Error de lógica", "detail": str(exc)},
-        headers={"Access-Control-Allow-Origin": "*"}
+        content={"message": "Error de lógica", "detail": str(exc)}
     )
 
 @app.exception_handler(Exception)
@@ -200,10 +196,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     import traceback
     print(f"CRITICAL ERROR: {str(exc)}")
     traceback.print_exc()
+    
+    # SE ELIMINARON LOS HEADERS MANUALES QUE ROMPÍAN EL CORS
     return JSONResponse(
         status_code=500,
-        content={"message": "Internal Server Error", "detail": str(exc)},
-        headers={"Access-Control-Allow-Origin": "*"}
+        content={"message": "Internal Server Error", "detail": str(exc)}
     )
 
 
