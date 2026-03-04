@@ -332,9 +332,10 @@ def run_simulation(
     factor = (tasa_para_factor * (1 + tasa_para_factor) ** n_reales) / ((1 + tasa_para_factor) ** n_reales - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
-    # 5. Cronograma detallado
-    fecha_base = payload.fecha_inicio_prestamo or date.today()
-    flujos_caja = [float(monto_financiar)] 
+    # Flujos para TIR/VAN (Perspectiva del Proyecto/Cliente)
+    # Mes 0: Monto Prestado (+) - Gastos Iniciales (-)
+    # Mes 1...n: Cuotas Totales (-)
+    flujos_caja = [float(monto_financiar) - float(payload.gastos_iniciales)]
     total_int, total_seg = Decimal("0"), Decimal("0")
 
     # Agregar cuota 0 (Desembolso inicial) como estaba en tu commit
@@ -467,11 +468,12 @@ def run_simulation(
         "tasa_efectiva_anual": float(tea * 100),
         "tasa_efectiva_mensual": float(tem * 100),
         "tasa_descuento": float(TASA_DESCUENTO_ANUAL * 100),  # 8% anual fija
+        "tasa_descuento_mensual": float(Decimal(str(tasa_descuento_mensual)) * 100),
         "factor_frances": float(factor),
         "cuota_base": float(cuota_base),
         "ratio_cuota_ingreso": float(ratio),
         "van": float(van),
-        "tir": float(tir * 100),
+        "tir": float(Decimal(str(tir)) * 100),
         "tcea": float(tcea * 100),
         "total_intereses": float(total_int),
         "total_pagado": float(sum(d.cuota_total for d in detalles_db)),

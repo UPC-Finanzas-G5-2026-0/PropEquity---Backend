@@ -141,6 +141,8 @@ class SimulationSummaryResponse(BaseModel):
     van: Decimal
     tir: Decimal
     tcea: Decimal
+    tasa_descuento: Decimal
+    tasa_descuento_mensual: Decimal
     total_intereses: Decimal
     total_pagado: Decimal
     total_seguro: Decimal
