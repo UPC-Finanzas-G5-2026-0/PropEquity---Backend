@@ -29,7 +29,7 @@ def d2(val):
 def get_bono_info(db: Session, precio_venta: Decimal, tipo_bbp: str, modalidad: str) -> dict:
     """Calcula rango, bono base e integrador según tablas técnicas."""
     if modalidad == "Mejoramiento" or precio_venta > Decimal("488800.00") or tipo_bbp == "Ninguno":
-        return {"rango": "SinBBP", "base": Decimal("0.00"), "integrador": Decimal("0.00")}
+        return {"rango": "SinBBP", "base": Decimal("0.00"), "integrador": Decimal("0.00"), "id": None}
 
     bono_row = db.query(BonoBBP).filter(
         BonoBBP.valor_vivienda_min <= precio_venta,
@@ -37,7 +37,7 @@ def get_bono_info(db: Session, precio_venta: Decimal, tipo_bbp: str, modalidad: 
     ).first()
 
     if not bono_row or bono_row.rango == "R5":
-        return {"rango": (bono_row.rango if bono_row else "SinBBP"), "base": Decimal("0.00"), "integrador": Decimal("0.00")}
+        return {"rango": (bono_row.rango if bono_row else "SinBBP"), "base": Decimal("0.00"), "integrador": Decimal("0.00"), "id": (bono_row.codigo_bono if bono_row else None)}
 
     mapping = {
         "Tradicional": bono_row.bono_tradicional,
@@ -49,7 +49,7 @@ def get_bono_info(db: Session, precio_venta: Decimal, tipo_bbp: str, modalidad: 
     base = Decimal(str(mapping.get(tipo_bbp, 0)))
     integrador = Decimal("3600.00") if "Integrador" in tipo_bbp else Decimal("0.00")
     
-    return {"rango": bono_row.rango, "base": base, "integrador": integrador}
+    return {"rango": bono_row.rango, "base": base, "integrador": integrador, "id": bono_row.codigo_bono}
 
 def get_capitalizacion_factor(capitalizacion: str) -> int:
     """Retorna el número de meses de capitalización para tasa nominal."""
@@ -361,6 +361,7 @@ def run_simulation(
         if not ifi_row:
             raise HTTPException(status_code=400, detail=f"Monto fuera de rango para {payload.ifi_seleccionada}.")
 
+        payload.codigo_credito = ifi_row.codigo_credito
         payload.tipo_tasa = "Efectiva"
         payload.capitalizacion = "Mensual" 
         
@@ -607,6 +608,9 @@ def run_simulation(
                 "comision_activacion": float(payload.comision_activacion),
                 "tipo_bbp": payload.tipo_bbp,
                 "bono_bbp": float(bono_total),
+                "codigo_bono": bono_info["id"],
+                "ifi_seleccionada": payload.ifi_seleccionada,
+                "codigo_credito": payload.codigo_credito,
                 "tipo_tasa": payload.tipo_tasa,
                 "tasa_anual": float(payload.tasa_anual),
                 "capitalizacion": payload.capitalizacion,
@@ -624,6 +628,11 @@ def run_simulation(
                 "detalles": [_detalle_to_dict(d) for d in detalles_db]
             }
 
+        # Lookups for Tasa and Gracia
+        from app.models import TipoTasa, TipoGracia
+        tasa_obj = db.query(TipoTasa).filter(TipoTasa.tipo == payload.tipo_tasa).first()
+        gracia_obj = db.query(TipoGracia).filter(TipoGracia.tipo == payload.tipo_gracia).first()
+
         new_sim = Simulation(
             fecha_inicio_prestamo=fecha_base,
             cuota_inicial=payload.cuota_inicial,
@@ -634,9 +643,15 @@ def run_simulation(
             comision_activacion=payload.comision_activacion,
             gastos_iniciales=payload.gastos_iniciales,
             tipo_bbp=payload.tipo_bbp, bono_bbp=bono_total,
-            ifi_seleccionada=payload.ifi_seleccionada, tipo_tasa=payload.tipo_tasa,
+            codigo_bono=bono_info["id"],
+            ifi_seleccionada=payload.ifi_seleccionada, 
+            codigo_credito=payload.codigo_credito,
+            tipo_tasa=payload.tipo_tasa,
+            codigo_tipo_tasa=(tasa_obj.codigo_tipo_tasa if tasa_obj else None),
             tasa_anual=payload.tasa_anual, plazo_meses=payload.plazo_meses,
-            tipo_gracia=payload.tipo_gracia, meses_gracia=payload.meses_gracia,
+            tipo_gracia=payload.tipo_gracia, 
+            codigo_tipo_gracia=(gracia_obj.codigo_tipo_gracia if gracia_obj else None),
+            meses_gracia=payload.meses_gracia,
             seguro_desgravamen=payload.seguro_desgravamen, 
             comision_periodica=payload.comision_periodica,
             portes=payload.portes,
@@ -680,7 +695,11 @@ def run_simulation(
             "comision_activacion": float(new_sim.comision_activacion),
             "tipo_bbp": new_sim.tipo_bbp,
             "bono_bbp": float(new_sim.bono_bbp),
+            "codigo_bono": new_sim.codigo_bono,
+            "ifi_seleccionada": new_sim.ifi_seleccionada,
+            "codigo_credito": new_sim.codigo_credito,
             "tipo_tasa": new_sim.tipo_tasa,
+            "codigo_tipo_tasa": new_sim.codigo_tipo_tasa,
             "tasa_anual": float(new_sim.tasa_anual),
             "comision_periodica": float(new_sim.comision_periodica),
             "portes": float(new_sim.portes),
@@ -688,6 +707,7 @@ def run_simulation(
             "capitalizacion": new_sim.capitalizacion,
             "plazo_meses": new_sim.plazo_meses,
             "tipo_gracia": new_sim.tipo_gracia,
+            "codigo_tipo_gracia": new_sim.codigo_tipo_gracia,
             "meses_gracia": new_sim.meses_gracia,
             "seguro_desgravamen": float(new_sim.seguro_desgravamen),
             "codigo_unidad": new_sim.codigo_unidad,

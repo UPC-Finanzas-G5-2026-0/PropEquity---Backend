@@ -130,6 +130,25 @@ def seed_catalogs():
             db.commit()
             print("Bonos BBP (2026) creados.")
 
+        # 10. Sembrar Tipos de Tasa
+        if db.query(models.TipoTasa).count() == 0:
+            db.add_all([
+                models.TipoTasa(codigo_tipo_tasa=1, tipo="Nominal"),
+                models.TipoTasa(codigo_tipo_tasa=2, tipo="Efectiva")
+            ])
+            db.commit()
+            print("Tipos de tasa creados.")
+
+        # 11. Sembrar Tipos de Gracia
+        if db.query(models.TipoGracia).count() == 0:
+            db.add_all([
+                models.TipoGracia(codigo_tipo_gracia=1, tipo="Ninguno"),
+                models.TipoGracia(codigo_tipo_gracia=2, tipo="Parcial"),
+                models.TipoGracia(codigo_tipo_gracia=3, tipo="Total")
+            ])
+            db.commit()
+            print("Tipos de gracia creados.")
+
     except Exception as e:
         db.rollback()
         print(f"⚠️ Error al intentar sembrar catálogos: {e}")

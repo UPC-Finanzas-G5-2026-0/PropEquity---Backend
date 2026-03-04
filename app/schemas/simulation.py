@@ -55,6 +55,12 @@ class SimulationBase(BaseModel):
     codigo_cliente: Optional[int] = None
     codigo_prospecto: Optional[int] = None
     codigo_asesor: Optional[int] = None
+    
+    # IDs de catálogos (Nuevos)
+    codigo_bono: Optional[int] = None
+    codigo_credito: Optional[int] = None
+    codigo_tipo_tasa: Optional[int] = None
+    codigo_tipo_gracia: Optional[int] = None
 
     # Fecha
     fecha_inicio_prestamo: Optional[date] = None
@@ -226,6 +232,13 @@ class SimulationResponse(BaseModel):
     codigo_cliente: Optional[int] = None
     codigo_prospecto: Optional[int] = None
     codigo_asesor: Optional[int] = None
+    
+    # IDs de catálogos
+    codigo_bono: Optional[int] = None
+    codigo_credito: Optional[int] = None
+    codigo_tipo_tasa: Optional[int] = None
+    codigo_tipo_gracia: Optional[int] = None
+
     resumen: Optional[SimulationSummaryResponse] = None
     detalles: List[SimulationDetailResponse] = []
     unidad_rel: Optional[UnitResponse] = None

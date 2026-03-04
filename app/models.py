@@ -285,21 +285,33 @@ class Simulation(Base):
     ingreso_maximo_integrador = Column(Numeric(10, 2), nullable=True)
     # Solo si categoria_integrador = "Menores ingresos" → debe ser <= 4746.00
 
+    codigo_bono = Column(Integer, ForeignKey("bonos_bbp.codigo_bono"), nullable=True)
+    bono_rel = relationship("BonoBBP")
+
     # IFI
     ifi_seleccionada = Column(String(50), nullable=True)
     # "BCP" / "BBVA" / "Interbank" / "Pichincha" / "GNB" / NULL (manual)
 
-    # Tasa (directo, ya no FK)
+    codigo_credito = Column(Integer, ForeignKey("creditos_ifi.codigo_credito"), nullable=True)
+    credito_rel = relationship("CreditoIFI")
+
+    # Tasa
     tipo_tasa = Column(String(15), default="Efectiva")   # "Nominal" / "Efectiva"
     tasa_anual = Column(Numeric(8, 6), default=0.000000)
     capitalizacion = Column(String(15), default="Mensual")
     # Solo si tipo_tasa = "Nominal": "Mensual" / "Bimestral" / "Trimestral"
 
+    codigo_tipo_tasa = Column(Integer, ForeignKey("tipos_tasa.codigo_tipo_tasa"), nullable=True)
+    tipo_tasa_rel = relationship("TipoTasa")
+
     plazo_meses = Column(Integer, default=0)  # 60 a 300
 
-    # Gracia (directo, ya no FK)
+    # Gracia
     tipo_gracia = Column(String(15), default="Ninguno")  # "Ninguno" / "Parcial" / "Total"
     meses_gracia = Column(Integer, default=0)
+
+    codigo_tipo_gracia = Column(Integer, ForeignKey("tipos_gracia.codigo_tipo_gracia"), nullable=True)
+    tipo_gracia_rel = relationship("TipoGracia")
 
     # Seguro: TASA aplicada sobre el saldo (no monto fijo)
     seguro_desgravamen = Column(Numeric(8, 6), default=0.000000)
