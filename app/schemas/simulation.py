@@ -29,6 +29,7 @@ class SimulationBase(BaseModel):
     tipo_bbp: str = Field(default="Ninguno")
     categoria_integrador: Optional[str] = None
     ingreso_maximo_integrador: Optional[float] = Field(None, ge=0)
+    tiene_deudor_solidario: bool = Field(default=False)
 
     # IFI (opcional)
     ifi_seleccionada: Optional[str] = None

@@ -341,7 +341,20 @@ def run_simulation(
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
             raise HTTPException(status_code=400, detail=f"El plazo está fuera del rango de {payload.ifi_seleccionada}.")
         
-        tiene_mancomunado = getattr(entity, 'tiene_deudor_solidario', False) if entity else False
+        # Determinación del seguro (Individual vs Mancomunado)
+        tiene_mancomunado = False
+        
+        # 1. Prioridad: Lo que el usuario marca en el formulario de simulación (transitorio)
+        if payload.tiene_deudor_solidario:
+            tiene_mancomunado = True
+            
+        # 2. Si no marcó deudor solidario, revisamos su perfil en DB (Estado Civil o Marcación fija)
+        elif entity:
+            if getattr(entity, 'tiene_deudor_solidario', False):
+                tiene_mancomunado = True
+            elif int(getattr(entity, 'codigo_estado_civil', 0) or 0) in [2, 3]: # 2=Casado, 3=Conviviente
+                tiene_mancomunado = True
+        
         payload.seguro_desgravamen = float(ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual)
 
     else:
