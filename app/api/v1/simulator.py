@@ -94,6 +94,33 @@ def check_income(person_id: int, db: Session = Depends(get_db), current_user: Us
         }
         
     raise HTTPException(status_code=404, detail="ID no encontrado en Base de Datos")
+    
+@router.get("/ifi-rules")
+def get_ifi_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Devuelve las reglas de todas las IFIs (tasas por monto, seguros de desgravamen).
+    Usado por el frontend para poblar el dropdown y autocompletar tasas.
+    """
+    ifis = db.query(CreditoIFI).all()
+    rules = {}
+    for i in ifis:
+        if i.nombre_ifi not in rules:
+            rules[i.nombre_ifi] = {
+                "rates": [],
+                "seguro_individual": float(i.seguro_individual),
+                "seguro_mancomunado": float(i.seguro_mancomunado)
+            }
+        # Agregar el rango de tasa
+        rules[i.nombre_ifi]["rates"].append({
+            "max": float(i.monto_max) if i.monto_max else 999999999,
+            "tea": float(i.tea)
+        })
+    
+    # Ordenar los rangos por monto máximo para que el frontend pueda buscar correctamente
+    for bank in rules:
+        rules[bank]["rates"].sort(key=lambda x: x["max"])
+        
+    return rules
 
 @router.get("/ifis-disponibles")
 def get_ifis_disponibles(
