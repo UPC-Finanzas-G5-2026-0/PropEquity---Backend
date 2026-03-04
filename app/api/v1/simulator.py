@@ -778,10 +778,13 @@ def export_simulation_excel(
             ("TEM",                f"{mv(res.tasa_efectiva_mensual)*100:.6f}%"),
             ("TCEA",               f"{mv(res.tcea):.2f}%"),
             ("VAN",                f"S/ {mv(res.van):,.2f}"),
-            ("TIR (mensual)",      f"{mv(res.tir)*100:.4f}%"),
-            ("Total Intereses",    f"S/ {mv(res.total_intereses):,.2f}"),
+            ("TIR (mensual)",      f"{mv(res.tir):.5f}%"),
+            ("Intereses",          f"S/ {mv(res.total_intereses):,.2f}"),
+            ("Comisiones",         f"S/ {mv(res.total_comisiones_periodicas):,.2f}"),
+            ("Portes / Otros",     f"S/ {mv(res.total_portes_gastos_adm):,.2f}"),
+            ("Seguros",            f"S/ {mv(res.total_seguro):,.2f}"),
+            ("Tasa Descuento (M)", f"{mv(res.tasa_descuento_mensual):.5f}%"),
             ("Total Pagado",       f"S/ {mv(res.total_pagado):,.2f}"),
-            ("Total Seguro",       f"S/ {mv(res.total_seguro):,.2f}"),
         ]
         parametros = [
             ("IFI",           sim.ifi_seleccionada or "Genérico"),
@@ -811,13 +814,13 @@ def export_simulation_excel(
         ws2["A1"].font = Font(name="Calibri", bold=True, color=C_WHITE, size=13)
         ws2["A1"].fill, ws2["A1"].alignment = fill(C_DARK), al()
         ws2.row_dimensions[1].height = 30
-        ws2.merge_cells("A2:H2")
+        ws2.merge_cells("A2:K2")
         ws2["A2"].value = f"Sim #{sim.codigo_simulacion}  |  S/ {mv(res.monto_financiar):,.2f}  |  {sim.plazo_meses} m  |  TEA {mv(res.tasa_efectiva_anual)*100:.2f}%  |  TCEA {mv(res.tcea):.2f}%"
         ws2["A2"].font = Font(name="Calibri", bold=True, color=C_ORANGE, size=8)
         ws2["A2"].fill, ws2["A2"].alignment = fill(C_NAVY), al()
         ws2.row_dimensions[2].height = 16; ws2.row_dimensions[3].height = 6
         hdrs = [("N°", 7), ("Fecha Pago", 13), ("Saldo Inicial", 16), ("Interés", 14),
-                ("Amortización", 14), ("Seg. Desgrav.", 14), ("Cuota Total", 14), ("Saldo Final", 16)]
+                ("Amortización", 14), ("Seg. Desgrav.", 14), ("Comisión", 12), ("Portes", 12), ("Gastos Adm", 12), ("Flujo", 14), ("Saldo Final", 16)]
         ws2.row_dimensions[4].height = 22
         for col, (hdr, w) in enumerate(hdrs, 1):
             c = ws2.cell(row=4, column=col, value=hdr)
@@ -829,10 +832,11 @@ def export_simulation_excel(
             row_vals = [d.numero_cuota,
                         d.fecha_vencimiento.strftime("%d/%m/%Y") if d.fecha_vencimiento else "—",
                         mv(d.saldo_inicio), mv(d.interes), mv(d.amortizacion),
-                        mv(d.seguro), mv(d.cuota_total), mv(d.saldo_final)]
+                        mv(d.seguro), mv(d.comision_periodica), mv(d.portes), mv(d.gastos_administracion),
+                        mv(d.cuota_total), mv(d.saldo_final)]
             for col, val in enumerate(row_vals, 1):
                 c = ws2.cell(row=row, column=col, value=val)
-                is_cuota = col == 7; is_num = col >= 3
+                is_cuota = col == 10; is_num = col >= 3
                 c.font = bf(bold=is_cuota, color=C_ORANGE if is_cuota else C_DARK)
                 c.fill, c.border = fill(bg), tb()
                 c.alignment = al(h="right") if col >= 3 else al()
@@ -840,8 +844,8 @@ def export_simulation_excel(
         tr = 5 + len(detalles); ws2.row_dimensions[tr].height = 20
         ws2.merge_cells(f"A{tr}:B{tr}")
         c = ws2[f"A{tr}"]; c.value = "TOTALES"; c.font = hf(); c.fill = fill(C_DARK); c.alignment = al(); c.border = tb()
-        total_map = {4: mv(res.total_intereses), 6: mv(res.total_seguro), 7: mv(res.total_pagado)}
-        for col in range(3, 9):
+        total_map = {4: mv(res.total_intereses), 6: mv(res.total_seguro), 7: mv(res.total_comisiones_periodicas), 8: mv(res.total_portes_gastos_adm), 10: mv(res.total_pagado)}
+        for col in range(3, 12):
             c = ws2.cell(row=tr, column=col, value=total_map.get(col))
             c.font, c.fill, c.border, c.alignment, c.number_format = hf(color=C_ORANGE), fill(C_DARK), tb(), al(h="right"), "#,##0.00"
 
@@ -881,21 +885,21 @@ def export_simulation_pdf(
     elements.append(Spacer(1, 12))
     summary = f"""
     <b>Unidad:</b> {sim.unidad_rel.direccion_unidad}<br/>
-    <b>Tipo BBP:</b> {sim.tipo_bbp} (S/ {res.precio_neto:,.2f} neto)<br/>
-    <b>Monto Financiar:</b> S/ {res.monto_financiar:,.2f}<br/>
-    <b>Tipo Tasa:</b> {sim.tipo_tasa} — {float(sim.tasa_anual):.4f}% anual<br/>
-    <b>Plazo:</b> {sim.plazo_meses} meses<br/>
-    <b>TCEA:</b> {res.tcea}%<br/>
-    <b>VAN:</b> S/ {res.van:,.2f}<br/><b>TIR Mes:</b> {float(res.tir)*100:.4f}%
+    <b>TCEA:</b> {float(res.tcea):.5f}% | <b>TIR Mes:</b> {float(res.tir):.5f}% | <b>VAN:</b> S/ {res.van:,.2f}<br/>
+    <b>Monto Financiar:</b> S/ {res.monto_financiar:,.2f} | <b>Total Pagado:</b> S/ {res.total_pagado:,.2f}<br/>
+    <b>Intereses Totales:</b> S/ {res.total_intereses:,.2f} | <b>Seguros Totales:</b> S/ {res.total_seguro:,.2f}<br/>
+    <b>Comisiones Totales:</b> S/ {res.total_comisiones_periodicas:,.2f} | <b>Portes/Gastos:</b> S/ {res.total_portes_gastos_adm:,.2f}<br/>
+    <b>Tasa Descuento (Mensual):</b> {float(res.tasa_descuento_mensual):.5f}%
     """
     elements.append(Paragraph(summary, styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    data = [["Cuota", "Vencimiento", "Total", "Interés", "Amortización", "Seguro", "Saldo"]]
+    data = [["Cuota", "Fecha", "Interés", "Amortiz.", "Seguro", "Comis.", "Porte", "Gasto", "Flujo", "Saldo"]]
     for d in sim.detalles:
         data.append([d.numero_cuota, d.fecha_vencimiento.strftime("%d/%m/%Y"),
-                     f"{d.cuota_total:,.2f}", f"{d.interes:,.2f}", f"{d.amortizacion:,.2f}",
-                     f"{d.seguro:,.2f}", f"{d.saldo_final:,.2f}"])
+                     f"{d.interes:,.2f}", f"{d.amortizacion:,.2f}", f"{d.seguro:,.2f}", 
+                     f"{d.comision_periodica:,.2f}", f"{d.portes:,.2f}", f"{d.gastos_administracion:,.2f}",
+                     f"{d.cuota_total:,.2f}", f"{d.saldo_final:,.2f}"])
 
     t = Table(data, repeatRows=1)
     t.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
