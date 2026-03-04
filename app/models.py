@@ -316,7 +316,7 @@ class Simulation(Base):
 
     # RELACIONES A RESULTADOS
     resumen = relationship("SimulationResult", back_populates="simulacion_rel", uselist=False, cascade="all, delete-orphan")
-    detalles = relationship("SimulationDetail", back_populates="simulacion_rel", cascade="all, delete-orphan")
+    detalles = relationship("SimulationDetail", back_populates="simulacion_rel", cascade="all, delete-orphan", order_by="SimulationDetail.numero_cuota")
 
     __table_args__ = (
         CheckConstraint('tasa_anual > 0', name='check_tasa_anual_positive'),

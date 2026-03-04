@@ -714,12 +714,15 @@ def get_simulation(
     sim = db.query(Simulation)\
             .options(
                 joinedload(Simulation.unidad_rel),
-                joinedload(Simulation.resumen)
+                joinedload(Simulation.resumen),
+                joinedload(Simulation.detalles)
             )\
             .filter(Simulation.codigo_simulacion == codigo_simulacion)\
             .first()
+
     if not sim:
         raise HTTPException(status_code=404, detail="Simulación no encontrada")
+
     role = current_user.rol_rel.tipo_rol
     if role == "Cliente" and sim.codigo_cliente != current_user.codigo_usuario:
         raise HTTPException(status_code=403, detail="No tienes permiso para ver esta simulación.")
