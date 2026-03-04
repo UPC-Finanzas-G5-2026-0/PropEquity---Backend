@@ -100,18 +100,18 @@ def seed_catalogs():
             db.commit()
             print("Parámetros de bancos (IFI) creados.")
 
-        # 9. Sembrar Bonos MiVivienda (BBP) - NUEVO
+        # 9. Sembrar Bonos MiVivienda (BBP) - NUEVO (Valores Actualizados 2026)
         if db.query(models.BonoBBP).count() == 0:
             bonos = [
-                models.BonoBBP(rango="R1", valor_vivienda_min=65000, valor_vivienda_max=93100, bono_tradicional=25700, bono_sostenible=31100, bono_integrador_tradicional=29200, bono_integrador_sostenible=34600),
-                models.BonoBBP(rango="R2", valor_vivienda_min=93100, valor_vivienda_max=139400, bono_tradicional=21400, bono_sostenible=26800, bono_integrador_tradicional=24900, bono_integrador_sostenible=30300),
-                models.BonoBBP(rango="R3", valor_vivienda_min=139400, valor_vivienda_max=232200, bono_tradicional=19600, bono_sostenible=25000, bono_integrador_tradicional=23100, bono_integrador_sostenible=28500),
-                models.BonoBBP(rango="R4", valor_vivienda_min=232200, valor_vivienda_max=343900, bono_tradicional=7300, bono_sostenible=12700, bono_integrador_tradicional=10800, bono_integrador_sostenible=16200),
-                models.BonoBBP(rango="R5", valor_vivienda_min=343900, valor_vivienda_max=464200, bono_tradicional=0, bono_sostenible=5400, bono_integrador_tradicional=3500, bono_integrador_sostenible=8900)
+                models.BonoBBP(rango="R1", valor_vivienda_min=68800, valor_vivienda_max=97800, bono_tradicional=35100, bono_sostenible=41400, bono_integrador_tradicional=38700, bono_integrador_sostenible=45000),
+                models.BonoBBP(rango="R2", valor_vivienda_min=97801, valor_vivienda_max=146900, bono_tradicional=28000, bono_sostenible=34300, bono_integrador_tradicional=31600, bono_integrador_sostenible=37900),
+                models.BonoBBP(rango="R3", valor_vivienda_min=146901, valor_vivienda_max=244600, bono_tradicional=20900, bono_sostenible=27200, bono_integrador_tradicional=24500, bono_integrador_sostenible=30800),
+                models.BonoBBP(rango="R4", valor_vivienda_min=244601, valor_vivienda_max=362100, bono_tradicional=7800, bono_sostenible=14100, bono_integrador_tradicional=11400, bono_integrador_sostenible=17700),
+                models.BonoBBP(rango="R5", valor_vivienda_min=362101, valor_vivienda_max=488800, bono_tradicional=0, bono_sostenible=0, bono_integrador_tradicional=3600, bono_integrador_sostenible=3600)
             ]
             db.add_all(bonos)
             db.commit()
-            print("Bonos BBP creados.")
+            print("Bonos BBP (2026) creados.")
 
     except Exception as e:
         db.rollback()
@@ -182,20 +182,28 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Methods": "*",
             "Access-Control-Allow-Headers": "*"
         }
     )
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
-    return JSONResponse(status_code=422, content={"message": "Error de lógica", "detail": str(exc)})
+    return JSONResponse(
+        status_code=422, 
+        content={"message": "Error de lógica", "detail": str(exc)},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    print(f"CRITICAL ERROR: {str(exc)}")
+    traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"message": "Internal Server Error", "detail": str(exc) if os.getenv("DEBUG") == "true" else "Error inesperado."}
+        content={"message": "Internal Server Error", "detail": str(exc)},
+        headers={"Access-Control-Allow-Origin": "*"}
     )
 
 

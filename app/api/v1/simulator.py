@@ -55,6 +55,25 @@ def get_capitalizacion_factor(capitalizacion: str) -> int:
     """Retorna el número de meses de capitalización para tasa nominal."""
     return {"Mensual": 1, "Bimestral": 2, "Trimestral": 3}.get(capitalizacion, 1)
 
+@router.get("/bbp-ranges")
+def get_bbp_ranges(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """
+    Devuelve los rangos de bonos BBP configurados en el sistema.
+    """
+    bonos = db.query(BonoBBP).order_by(BonoBBP.valor_vivienda_min.asc()).all()
+    return [
+        {
+            "rango": b.rango,
+            "min": float(b.valor_vivienda_min),
+            "max": float(b.valor_vivienda_max),
+            "tradicional": float(b.bono_tradicional),
+            "sostenible": float(b.bono_sostenible),
+            "integrador_tradicional": float(b.bono_integrador_tradicional),
+            "integrador_sostenible": float(b.bono_integrador_sostenible)
+        }
+        for b in bonos
+    ]
+
 # 🚨 NUEVO ENDPOINT: Búsqueda segura del IFM para el Frontend
 @router.get("/check-income/{person_id}")
 def check_income(person_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -502,6 +521,9 @@ def run_simulation(
             "amortizacion":        float(d.amortizacion),
             "seguro":              float(d.seguro),
             "seguro_desgravamen":  float(getattr(d, "seguro_desgravamen", d.seguro)) if d.seguro is not None else None,
+            "comision_periodica":  float(d.comision_periodica) if getattr(d, "comision_periodica", None) is not None else 0.0,
+            "portes":              float(d.portes) if getattr(d, "portes", None) is not None else 0.0,
+            "gastos_administracion": float(d.gastos_administracion) if getattr(d, "gastos_administracion", None) is not None else 0.0,
             "cuota_total":         float(d.cuota_total),
             "cuota":               float(getattr(d, "cuota", d.cuota_total)) if d.cuota_total is not None else None,
             "saldo_final":         float(d.saldo_final),
