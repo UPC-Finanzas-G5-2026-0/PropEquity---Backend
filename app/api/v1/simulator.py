@@ -852,7 +852,7 @@ def export_simulation_excel(
         ws2["A2"].fill, ws2["A2"].alignment = fill(C_NAVY), al()
         ws2.row_dimensions[2].height = 16; ws2.row_dimensions[3].height = 6
         hdrs = [("N°", 7), ("Fecha Pago", 13), ("Saldo Inicial", 16), ("Interés", 14), ("Cuota", 14),
-                ("Amortización", 14), ("Seg. Desgrav.", 14), ("Comisión", 12), ("Portes", 12), ("Gastos Adm", 12), ("Flujo", 14), ("Saldo Final", 16)]
+                ("Amortización", 14), ("Seg. Desgrav.", 14), ("Comisión", 12), ("Portes", 12), ("Gastos Adm", 12), ("Saldo Final", 16), ("Flujo", 14)]
         ws2.row_dimensions[4].height = 22
         for col, (hdr, w) in enumerate(hdrs, 1):
             c = ws2.cell(row=4, column=col, value=hdr)
@@ -865,7 +865,7 @@ def export_simulation_excel(
                         d.fecha_vencimiento.strftime("%d/%m/%Y") if d.fecha_vencimiento else "—",
                         mv(d.saldo_inicio), mv(d.interes), mv(d.cuota_total), mv(d.amortizacion),
                         mv(d.seguro), mv(d.comision_periodica), mv(d.portes), mv(d.gastos_administracion),
-                        mv(d.flujo_caja) if d.flujo_caja is not None else 0, mv(d.saldo_final)]
+                        mv(d.saldo_final), mv(d.flujo_caja) if d.flujo_caja is not None else 0]
             for col, val in enumerate(row_vals, 1):
                 c = ws2.cell(row=row, column=col, value=val)
                 is_cuota = col == 11; is_num = col >= 3
@@ -876,7 +876,7 @@ def export_simulation_excel(
         tr = 5 + len(detalles); ws2.row_dimensions[tr].height = 20
         ws2.merge_cells(f"A{tr}:B{tr}")
         c = ws2[f"A{tr}"]; c.value = "TOTALES"; c.font = hf(); c.fill = fill(C_DARK); c.alignment = al(); c.border = tb()
-        total_map = {4: mv(res.total_intereses), 7: mv(res.total_seguro), 8: mv(res.total_comisiones_periodicas), 9: mv(res.total_portes_gastos_adm), 11: mv(res.total_pagado)}
+        total_map = {4: mv(res.total_intereses), 7: mv(res.total_seguro), 8: mv(res.total_comisiones_periodicas), 9: mv(res.total_portes_gastos_adm), 12: mv(res.total_pagado)}
         for col in range(3, 13):
             c = ws2.cell(row=tr, column=col, value=total_map.get(col))
             c.font, c.fill, c.border, c.alignment, c.number_format = hf(color=C_ORANGE), fill(C_DARK), tb(), al(h="right"), "#,##0.00"
@@ -926,12 +926,12 @@ def export_simulation_pdf(
     elements.append(Paragraph(summary, styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    data = [["Cuota", "Fecha", "Interés", "Cuota", "Amortiz.", "Seguro", "Comis.", "Porte", "Gasto", "Flujo", "Saldo"]]
+    data = [["Cuota", "Fecha", "Interés", "Cuota", "Amortiz.", "Seguro", "Comis.", "Porte", "Gasto", "Saldo", "Flujo"]]
     for d in sim.detalles:
         data.append([d.numero_cuota, d.fecha_vencimiento.strftime("%d/%m/%Y") if d.fecha_vencimiento else "—",
                      f"{d.interes:,.2f}", f"{d.cuota_total:,.2f}", f"{d.amortizacion:,.2f}", f"{d.seguro:,.2f}", 
                      f"{d.comision_periodica:,.2f}", f"{d.portes:,.2f}", f"{d.gastos_administracion:,.2f}",
-                     f"{d.flujo_caja if d.flujo_caja is not None else 0:,.2f}", f"{d.saldo_final:,.2f}"])
+                     f"{d.saldo_final:,.2f}", f"{d.flujo_caja if d.flujo_caja is not None else 0:,.2f}"])
 
     t = Table(data, repeatRows=1)
     t.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
