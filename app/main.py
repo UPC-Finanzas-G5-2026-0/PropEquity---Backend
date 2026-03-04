@@ -103,8 +103,8 @@ def seed_catalogs():
         # 9. Sembrar Bonos MiVivienda (BBP) - NUEVO (Valores Actualizados 2026)
         if db.query(models.BonoBBP).count() == 0:
             bonos = [
-                models.BonoBBP(rango="R1", valor_vivienda_min=68800, valor_vivienda_max=97800, bono_tradicional=27400, bono_sostenible=33700, bono_integrador_tradicional=31000, bono_integrador_sostenible=37300),
-                models.BonoBBP(rango="R2", valor_vivienda_min=97801, valor_vivienda_max=146900, bono_tradicional=22800, bono_sostenible=29100, bono_integrador_tradicional=26400, bono_integrador_sostenible=32700),
+                models.BonoBBP(rango="R1", valor_vivienda_min=68800, valor_vivienda_max=98100, bono_tradicional=27400, bono_sostenible=33700, bono_integrador_tradicional=31000, bono_integrador_sostenible=37300),
+                models.BonoBBP(rango="R2", valor_vivienda_min=98101, valor_vivienda_max=146900, bono_tradicional=22800, bono_sostenible=29100, bono_integrador_tradicional=26400, bono_integrador_sostenible=32700),
                 models.BonoBBP(rango="R3", valor_vivienda_min=146901, valor_vivienda_max=244600, bono_tradicional=20900, bono_sostenible=27200, bono_integrador_tradicional=24500, bono_integrador_sostenible=30800),
                 models.BonoBBP(rango="R4", valor_vivienda_min=244601, valor_vivienda_max=362100, bono_tradicional=7800, bono_sostenible=14100, bono_integrador_tradicional=11400, bono_integrador_sostenible=17700),
                 models.BonoBBP(rango="R5", valor_vivienda_min=362101, valor_vivienda_max=488800, bono_tradicional=0, bono_sostenible=0, bono_integrador_tradicional=0, bono_integrador_sostenible=0)
