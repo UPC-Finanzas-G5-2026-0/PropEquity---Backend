@@ -382,15 +382,15 @@ def run_simulation(
             if payload.tipo_gracia == "Total":
                 interes_cap = int_periodo
                 amort_periodo = Decimal("0")
-                seguro_pago = Decimal("0")
-                cuota_base_pago = Decimal("0")
-                cuota_t = gastos_periodicos
+                seguro_pago = seguro_periodo
+                cuota_base_pago = seguro_pago
+                cuota_t = cuota_base_pago + gastos_periodicos
                 saldo = saldo_anterior + interes_cap
             else: 
                 amort_periodo = Decimal("0")
-                seguro_pago = Decimal("0")
-                cuota_base_pago = int_periodo
-                cuota_t = int_periodo + gastos_periodicos
+                seguro_pago = seguro_periodo
+                cuota_base_pago = int_periodo + seguro_pago
+                cuota_t = cuota_base_pago + gastos_periodicos
                 saldo = saldo_anterior
                 
             if i == m_gracia: 
