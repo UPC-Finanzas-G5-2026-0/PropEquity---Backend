@@ -500,7 +500,7 @@ def run_simulation(
             "portes":              float(d.portes) if getattr(d, "portes", None) is not None else 0.0,
             "gastos_administracion": float(d.gastos_administracion) if getattr(d, "gastos_administracion", None) is not None else 0.0,
             "cuota_total":         float(d.cuota_total) if d.cuota_total is not None else 0.0,
-            "cuota":               float(getattr(d, "cuota", d.cuota_total)) if d.cuota_total is not None else None,
+            "cuota":               float(d.cuota_total) if d.cuota_total is not None else 0.0,
             "saldo_final":         float(d.saldo_final) if d.saldo_final is not None else 0.0,
             "flujo_caja":          float(getattr(d, "flujo_caja", 0) or 0),
         }
