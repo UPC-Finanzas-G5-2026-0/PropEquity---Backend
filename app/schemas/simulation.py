@@ -142,12 +142,12 @@ class SimulationSummaryResponse(BaseModel):
     tir: Decimal
     tcea: Decimal
     tasa_descuento: Decimal
-    tasa_descuento_mensual: Decimal
+    tasa_descuento_mensual: Optional[Decimal] = Decimal("0.00")
     total_intereses: Decimal
     total_pagado: Decimal
     total_seguro: Decimal
-    total_comisiones_periodicas: Decimal
-    total_portes_gastos_adm: Decimal
+    total_comisiones_periodicas: Optional[Decimal] = Decimal("0.00")
+    total_portes_gastos_adm: Optional[Decimal] = Decimal("0.00")
 
 
     class Config:
@@ -167,9 +167,9 @@ class SimulationDetailResponse(BaseModel):
     amortizacion: Decimal
     seguro: Decimal
     seguro_desgravamen: Optional[Decimal] = None # Alias para el frontend
-    comision_periodica: Decimal
-    portes: Decimal
-    gastos_administracion: Decimal
+    comision_periodica: Optional[Decimal] = Decimal("0.00")
+    portes: Optional[Decimal] = Decimal("0.00")
+    gastos_administracion: Optional[Decimal] = Decimal("0.00")
     cuota_total: Decimal
 
     cuota: Optional[Decimal] = None # Alias para el frontend
@@ -191,9 +191,9 @@ class SimulationResponse(BaseModel):
     tasacion: Decimal
     comision_estudio: Decimal
     comision_activacion: Decimal
-    comision_periodica: Decimal
-    portes: Decimal
-    gastos_administracion: Decimal
+    comision_periodica: Optional[Decimal] = Decimal("0.00")
+    portes: Optional[Decimal] = Decimal("0.00")
+    gastos_administracion: Optional[Decimal] = Decimal("0.00")
     tipo_bbp: str
     bono_bbp: Decimal
     categoria_integrador: Optional[str] = None
