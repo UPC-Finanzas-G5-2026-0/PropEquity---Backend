@@ -103,8 +103,13 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
                 codigo_estado_civil=user_in.codigo_estado_civil,
                 nombre_conyuge=user_in.nombre_conyuge,
                 doc_conyuge=user_in.doc_conyuge,
-                conyuge_propietario=user_in.conyuge_propietario,
-                es_propietario_vivienda=user_in.es_propietario_vivienda
+                conyuge_propietario=user_in.conyuge_propietario or False,
+                ingreso_conyuge=user_in.ingreso_conyuge or 0.0,
+                es_propietario_vivienda=user_in.es_propietario_vivienda or False,
+                recibio_apoyo_estatal=user_in.ha_recibido_apoyo or False,
+                tiene_credito_fmv_activo=user_in.tiene_credito_activo or False,
+                hijos_menores_propietarios=user_in.hijos_menores_propietarios or False,
+                cantidad_creditos_fmv=user_in.cantidad_creditos_fmv or 0
             )
             db.add(new_profile)
 

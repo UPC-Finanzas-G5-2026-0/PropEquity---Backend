@@ -23,7 +23,12 @@ class UserCreate(UserBase):
     nombre_conyuge: Optional[str] = Field(None, max_length=150)
     doc_conyuge: Optional[str] = Field(None, max_length=12)
     conyuge_propietario: Optional[bool] = False
+    ingreso_conyuge: Optional[float] = 0.0
     es_propietario_vivienda: Optional[bool] = False
+    ha_recibido_apoyo: Optional[bool] = False
+    tiene_credito_activo: Optional[bool] = False
+    hijos_menores_propietarios: Optional[bool] = False
+    cantidad_creditos_fmv: Optional[int] = 0
 
     # Removemos las validaciones personalizadas de Pydantic ya que causaban problemas de serialización
     # Las validaciones de negocio ahora están en el endpoint para mejor manejo de errores
