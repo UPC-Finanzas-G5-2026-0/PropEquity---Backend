@@ -327,8 +327,10 @@ def run_simulation(
     n_reales = n_total - m_gracia
     
     # MÉTODO DE CÁLCULO: Usamos Tasa Combinada (TEM + Seguro) para cuota constante total
-    # (Como estaba en tu commit aadce4c)
+    # 4. Cálculo de Cuota (Sistema Francés con Tasa Combinada: Interés + Seguro)
+    seguro_tasa = Decimal(str(payload.seguro_desgravamen)) / Decimal("100")
     tasa_para_factor = tem + seguro_tasa
+    
     factor = (tasa_para_factor * (1 + tasa_para_factor) ** n_reales) / ((1 + tasa_para_factor) ** n_reales - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
