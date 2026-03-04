@@ -383,11 +383,13 @@ def run_simulation(
                 interes_cap = int_periodo
                 amort_periodo = Decimal("0")
                 seguro_pago = Decimal("0")
+                cuota_base_pago = Decimal("0")
                 cuota_t = gastos_periodicos
                 saldo = saldo_anterior + interes_cap
             else: 
                 amort_periodo = Decimal("0")
                 seguro_pago = Decimal("0")
+                cuota_base_pago = int_periodo
                 cuota_t = int_periodo + gastos_periodicos
                 saldo = saldo_anterior
                 
@@ -398,10 +400,12 @@ def run_simulation(
         else:
             seguro_pago = seguro_periodo
             amort_periodo = cuota_base - int_periodo - seguro_pago
+            cuota_base_pago = cuota_base
             cuota_t = cuota_base + gastos_periodicos
             saldo = saldo_anterior - amort_periodo
             
             if i == n_total and saldo != Decimal("0"):
+                cuota_base_pago += saldo
                 cuota_t += saldo
                 amort_periodo += saldo
                 saldo = Decimal("0")
@@ -418,7 +422,7 @@ def run_simulation(
             portes=d2(payload.portes),
             gastos_administracion=d2(payload.gastos_administracion),
             amortizacion=d2(amort_periodo), 
-            cuota_total=d2(cuota_t),
+            cuota_total=d2(cuota_base_pago),
             saldo_final=d2(max(Decimal("0"), saldo)),
             fecha_vencimiento=date(fecha_base.year + (fecha_base.month + i - 1) // 12, (fecha_base.month + i - 1) % 12 + 1, min(fecha_base.day, 28))
         )
@@ -428,6 +432,7 @@ def run_simulation(
         detalle.interes_capitalizado = d2(interes_cap)
         detalle.flujo_caja = d2(-cuota_t)
         detalle.fecha_pago = detalle.fecha_vencimiento 
+
         detalle.tea = tea * Decimal("100") 
         detalle.tem = tem * Decimal("100") 
         detalle.seguro_desgravamen = d2(seguro_periodo) 
