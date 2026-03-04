@@ -116,8 +116,7 @@ def get_ifis_disponibles(
             "nombre_ifi": r.nombre_ifi,
             "plazo_min_anios": r.plazo_min_anios,
             "plazo_max_anios": r.plazo_max_anios,
-            "tea_min": float(r.tea_min),
-            "tea_max": float(r.tea_max),
+            "tea": float(r.tea),
             "seguro_individual": float(r.seguro_individual),
             "seguro_mancomunado": float(r.seguro_mancomunado),
         }

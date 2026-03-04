@@ -40,8 +40,7 @@ class CreditoIFI(Base):
     monto_max = Column(Numeric(12, 2), nullable=True)        # Null = sin límite superior
     plazo_min_anios = Column(Integer, nullable=False)        # Plazo mínimo (años)
     plazo_max_anios = Column(Integer, nullable=False)        # Plazo máximo (años)
-    tea_min = Column(Numeric(6, 4), nullable=False)          # TEA mínima (%)
-    tea_max = Column(Numeric(6, 4), nullable=False)          # TEA máxima (%)
+    tea = Column(Numeric(6, 4), nullable=False)          # TEA (%)
     seguro_individual = Column(Numeric(6, 4), nullable=False)    # Tasa seguro individual (%)
     seguro_mancomunado = Column(Numeric(6, 4), nullable=False)   # Tasa seguro mancomunado (%)
 
