@@ -166,7 +166,6 @@ def run_simulation(
         if not input_id:
             raise HTTPException(status_code=400, detail="El asesor debe indicar el ID del prospecto/cliente.")
 
-        # 🚨 SOLUCIÓN: Buscar inteligentemente si el ID pertenece a Prospect o Client
         is_prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == input_id).first()
         is_client = db.query(Client).filter(Client.codigo_cliente == input_id).first()
         
@@ -176,14 +175,13 @@ def run_simulation(
             entity = is_prospect
         elif is_client:
             payload.codigo_cliente = input_id
-            payload.codigo_prospecto = None  # Esto evita que PostgreSQL explote
+            payload.codigo_prospecto = None  
             entity = is_client
         else:
             raise HTTPException(status_code=404, detail=f"El ID {input_id} no existe en la base de datos.")
 
         ifm = Decimal(str(entity.ingreso_mensual or 0)) + Decimal(str(getattr(entity, 'ingreso_conyuge', 0)))
 
-    # ═══ VALIDACIONES MOVIDAS DEL SCHEMA PARA EVITAR ERRORES 500 ═══
     TIPOS_BBP = ["Ninguno", "Tradicional", "Sostenible", "Integrador Tradicional", "Integrador Sostenible"]
     if payload.tipo_bbp not in TIPOS_BBP:
         raise HTTPException(status_code=422, detail=f"tipo_bbp debe ser uno de: {TIPOS_BBP}")
@@ -208,7 +206,9 @@ def run_simulation(
 
     if payload.tipo_gracia == "Total" and payload.meses_gracia > 6:
         raise HTTPException(status_code=422, detail="El periodo de gracia total no puede superar los 6 meses.")
-    # ═══ FIN VALIDACIONES MOVIDAS ═══
+
+    # 👇 ESTA ES LA LÍNEA MÁGICA QUE FALTABA (YA AGREGADA Y CORREGIDA) 👇
+    fecha_base = payload.fecha_inicio_prestamo if payload.fecha_inicio_prestamo else date.today()
 
     # 3. Conversión de Moneda y Cálculo de BBP
     pv = Decimal(str(unit.precio_venta))
@@ -244,27 +244,21 @@ def run_simulation(
         if tipo_v and tipo_v.nombre_tipo_venta == "Segunda venta":
             raise HTTPException(status_code=400, detail="El Bono de Buen Pagador (BBP) solo aplica para unidades de Primera Venta.")
 
-    # R-FMV1: El solicitante NO debe ser propietario de vivienda
     if payload.tipo_bbp != "Ninguno" and entity:
         if hasattr(entity, 'es_propietario_vivienda') and entity.es_propietario_vivienda:
             raise HTTPException(status_code=400, detail="El solicitante ya es propietario de una vivienda. No califica para el BBP.")
         
-        # R-FMV2: El cónyuge/conviviente NO debe ser propietario
         if hasattr(entity, 'conyuge_propietario') and entity.conyuge_propietario:
             raise HTTPException(status_code=400, detail="El cónyuge o conviviente ya es propietario de una vivienda. No califica para el BBP.")
         elif hasattr(entity, 'es_casado') and entity.es_casado and hasattr(entity, 'conyuge_rel'):
-            # Si el cónyuge está en otra tabla o relación, también se podría validar aquí
             pass
 
-        # R-FMV3: Los hijos menores NO deben ser propietarios
         if hasattr(entity, 'hijos_menores_propietarios') and entity.hijos_menores_propietarios:
             raise HTTPException(status_code=400, detail="Uno o más hijos menores de edad figura como propietario. No califica para el BBP.")
         
-        # R-FMV4: No haber recibido apoyo habitacional estatal previo
         if hasattr(entity, 'recibio_apoyo_estatal') and entity.recibio_apoyo_estatal:
             raise HTTPException(status_code=400, detail="El solicitante ya recibió apoyo habitacional del Estado. No califica para el BBP.")
         
-        # R-FMV5: Límites de créditos
         if hasattr(entity, 'cantidad_creditos_fmv') and entity.cantidad_creditos_fmv >= 2:
             raise HTTPException(status_code=400, detail="Ha alcanzado el límite máximo de 2 créditos MiVivienda.")
         
@@ -288,7 +282,6 @@ def run_simulation(
         if monto_financiar > max_financiar:
             raise HTTPException(status_code=400, detail=f"Financiamiento excede el 90% (S/ {float(max_financiar):,.2f}).")
 
-    # Gastos iniciales no pueden superar el 5% del precio de venta (Según tu commit)
     max_gastos = pv * Decimal("0.05")
     gastos_actuales = Decimal(str(payload.gastos_iniciales or 0))
     if gastos_actuales > max_gastos:
@@ -300,7 +293,6 @@ def run_simulation(
     if monto_financiar <= 0:
         raise HTTPException(status_code=400, detail="El monto a financiar debe ser mayor a 0.")
 
-    # ─── MODO IFI vs MODO MANUAL ─────────────────────────
     if payload.ifi_seleccionada:
         ifi_row = db.query(CreditoIFI).filter(
             CreditoIFI.nombre_ifi == payload.ifi_seleccionada,
@@ -328,7 +320,6 @@ def run_simulation(
     else:
         if payload.tipo_tasa == "Efectiva":
             payload.capitalizacion = "Mensual"
-    # ──────────────────────────────────────────────────
 
     tasa_anual_dec = Decimal(str(payload.tasa_anual)) / Decimal("100")
     if payload.tipo_tasa == "Efectiva":
@@ -339,30 +330,22 @@ def run_simulation(
     
     tem = (1 + tea)**(Decimal("1")/Decimal("12")) - 1
     
-    # Normalización del Seguro de Desgravamen (de % mensual a decimal mensual)
     seguro_tasa = Decimal(str(payload.seguro_desgravamen)) / Decimal("100")
     n_total = payload.plazo_meses
     m_gracia = payload.meses_gracia
     n_reales = n_total - m_gracia
     
-    # MÉTODO DE CÁLCULO: Usamos Tasa Combinada (TEM + Seguro) para cuota constante total
-    # 4. Cálculo de Cuota (Sistema Francés con Tasa Combinada: Interés + Seguro)
     seguro_tasa = Decimal(str(payload.seguro_desgravamen)) / Decimal("100")
     tasa_para_factor = tem + seguro_tasa
     
     factor = (tasa_para_factor * (1 + tasa_para_factor) ** n_reales) / ((1 + tasa_para_factor) ** n_reales - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_reales)))
     cuota_base = monto_financiar * factor
 
-    # Flujos para TIR/VAN (Perspectiva del Proyecto/Cliente)
-    # Mes 0: Monto Prestado (+) - Gastos Iniciales (-)
-    # Mes 1...n: Cuotas Totales (-)
     flujos_caja = [float(monto_financiar) - float(payload.gastos_iniciales)]
     total_int, total_seg = Decimal("0"), Decimal("0")
 
-    # Agregar cuota 0 (Desembolso inicial) como estaba en tu commit
     detalles_db = []
     saldo = monto_financiar
-    # seguro_tasa ya está calculado arriba como mensual absoluto
     
     detalles_db.append(SimulationDetail(
         numero_cuota=0,
@@ -377,13 +360,12 @@ def run_simulation(
         fecha_vencimiento=fecha_base
     ))
     
-    # Enriquecer cuota 0 para el frontend
     detalles_db[0].fecha_pago = fecha_base
     detalles_db[0].saldo_inicial = d2(monto_financiar)
     detalles_db[0].interes_capitalizado = d2(0)
     detalles_db[0].flujo_caja = d2(0)
-    detalles_db[0].tea = None # No aplica
-    detalles_db[0].tem = None # No aplica
+    detalles_db[0].tea = None 
+    detalles_db[0].tem = None 
     detalles_db[0].seguro_desgravamen = d2(0)
     detalles_db[0].cuota = d2(0)
     detalles_db[0].plazo_gracia = "-"
@@ -397,14 +379,12 @@ def run_simulation(
         
         if i <= m_gracia:
             if payload.tipo_gracia == "Total":
-                # Gracia Total: Capitaliza intereses, no paga seguro (según aadce4c)
                 interes_cap = int_periodo
                 amort_periodo = Decimal("0")
                 seguro_pago = Decimal("0")
                 cuota_t = gastos_periodicos
                 saldo = saldo_anterior + interes_cap
-            else: # Parcial
-                # Gracia Parcial: Paga interés únicamente (sin seguro según aadce4c)
+            else: 
                 amort_periodo = Decimal("0")
                 seguro_pago = Decimal("0")
                 cuota_t = int_periodo + gastos_periodicos
@@ -415,7 +395,6 @@ def run_simulation(
                 factor_p = (tasa_para_factor * (1 + tasa_para_factor) ** n_restantes) / ((1 + tasa_para_factor) ** n_restantes - 1) if tasa_para_factor > 0 else (Decimal("1")/Decimal(str(n_restantes)))
                 cuota_base = saldo * factor_p
         else:
-            # Sistema Francés con Tasa Combinada: Cuota Total es constante
             seguro_pago = seguro_periodo
             amort_periodo = cuota_base - int_periodo - seguro_pago
             cuota_t = cuota_base + gastos_periodicos
@@ -427,7 +406,7 @@ def run_simulation(
                 saldo = Decimal("0")
         
         total_int += int_periodo
-        total_seg += seguro_pago  # Solo lo que realmente se pagó (0 en gracia parcial/total)
+        total_seg += seguro_pago  
         flujos_caja.append(-float(cuota_t))
 
         detalle = SimulationDetail(
@@ -443,16 +422,15 @@ def run_simulation(
             fecha_vencimiento=date(fecha_base.year + (fecha_base.month + i - 1) // 12, (fecha_base.month + i - 1) % 12 + 1, min(fecha_base.day, 28))
         )
         
-        # Enriquecer con campos para el frontend (Sin d2 excesivo para tasas)
         detalle.saldo_inicio = d2(saldo_anterior)
-        detalle.saldo_inicial = d2(saldo_anterior) # Alias
+        detalle.saldo_inicial = d2(saldo_anterior) 
         detalle.interes_capitalizado = d2(interes_cap)
         detalle.flujo_caja = d2(-cuota_t)
-        detalle.fecha_pago = detalle.fecha_vencimiento # Alias
-        detalle.tea = tea * Decimal("100") # Sin d2
-        detalle.tem = tem * Decimal("100") # Sin d2
+        detalle.fecha_pago = detalle.fecha_vencimiento 
+        detalle.tea = tea * Decimal("100") 
+        detalle.tem = tem * Decimal("100") 
         detalle.seguro_desgravamen = d2(seguro_periodo) 
-        detalle.cuota = d2(cuota_t) # Alias
+        detalle.cuota = d2(cuota_t) 
         detalle.plazo_gracia = f"Gracia {payload.tipo_gracia}" if (payload.tipo_gracia != "Ninguno" and i <= m_gracia) else "Sin Gracia"
 
         detalles_db.append(detalle)
@@ -472,8 +450,6 @@ def run_simulation(
                 )
             )
 
-    # Financieros
-    # Tasa de descuento: 8% anual → mensual (Convención 30/360)
     TASA_DESCUENTO_ANUAL = Decimal("0.08")
     tasa_descuento_mensual = (1 + TASA_DESCUENTO_ANUAL) ** (Decimal("30") / Decimal("360")) - 1
     try:
@@ -490,7 +466,7 @@ def run_simulation(
         "monto_financiar": float(monto_financiar),
         "tasa_efectiva_anual": float(tea * 100),
         "tasa_efectiva_mensual": float(tem * 100),
-        "tasa_descuento": float(TASA_DESCUENTO_ANUAL * 100),  # 8% anual fija
+        "tasa_descuento": float(TASA_DESCUENTO_ANUAL * 100),  
         "tasa_descuento_mensual": float(Decimal(str(tasa_descuento_mensual)) * 100),
         "factor_frances": float(factor),
         "cuota_base": float(cuota_base),
@@ -506,7 +482,6 @@ def run_simulation(
     }
 
     def _detalle_to_dict(d) -> dict:
-        """Serializa un SimulationDetail (ORM + atributos dinámicos) a dict."""
         return {
             "numero_cuota":        d.numero_cuota,
             "fecha_vencimiento":   getattr(d, "fecha_vencimiento", None),
@@ -532,7 +507,6 @@ def run_simulation(
 
     try:
         if not save:
-            # Modo PREVIEW: devolver cronograma sin guardar en BD
             return {
                 "codigo_simulacion": None,
                 "fecha_simulacion": date.today(),
@@ -606,7 +580,6 @@ def run_simulation(
         
         db.commit(); db.refresh(new_sim)
         
-        # Devolver una respuesta consistente (evita problemas de lazy loading ORM)
         return {
             "codigo_simulacion": new_sim.codigo_simulacion,
             "fecha_simulacion": new_sim.fecha_simulacion,
