@@ -354,6 +354,8 @@ class SimulationResult(Base):
     van = Column(Numeric(12, 2), default=0.00)
     tir = Column(Numeric(10, 6), default=0.00)
     tcea = Column(Numeric(8, 4), default=0.00)
+    tasa_descuento = Column(Numeric(8, 6), default=0.08) # 8% anual por defecto
+    tasa_descuento_mensual = Column(Numeric(10, 8), default=0.006434) # 0.6434% mensual aprox
     
     total_intereses = Column(Numeric(12, 2), default=0.00)
     total_pagado = Column(Numeric(12, 2), default=0.00)
