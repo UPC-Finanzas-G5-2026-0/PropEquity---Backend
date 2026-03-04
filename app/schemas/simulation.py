@@ -179,6 +179,18 @@ class SimulationDetailResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @model_validator(mode="after")
+    def populate_aliases(self) -> "SimulationDetailResponse":
+        if self.cuota is None:
+            self.cuota = self.cuota_total
+        if self.fecha_pago is None:
+            self.fecha_pago = self.fecha_vencimiento
+        if self.saldo_inicial is None:
+            self.saldo_inicial = self.saldo_inicio
+        if self.seguro_desgravamen is None:
+            self.seguro_desgravamen = self.seguro
+        return self
+
 
 class SimulationResponse(BaseModel):
     codigo_simulacion: Optional[int] = None
