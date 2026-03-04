@@ -80,17 +80,31 @@ def check_income(person_id: int, db: Session = Depends(get_db), current_user: Us
     # Busca primero como prospecto
     prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == person_id).first()
     if prospect:
+        es_mancom = False
+        if int(getattr(prospect, 'codigo_estado_civil', 0) or 0) in [2, 3]:
+            es_mancom = True
+        elif getattr(prospect, 'tiene_deudor_solidario', False):
+            es_mancom = True
+            
         return {
             "type": "Prospecto", 
-            "ifm": float(prospect.ingreso_mensual or 0) + float(getattr(prospect, 'ingreso_conyuge', 0))
+            "ifm": float(prospect.ingreso_mensual or 0) + float(getattr(prospect, 'ingreso_conyuge', 0)),
+            "es_mancomunado": es_mancom
         }
     
     # Si no, busca como cliente
     client = db.query(Client).filter(Client.codigo_cliente == person_id).first()
     if client:
+        es_mancom = False
+        if int(getattr(client, 'codigo_estado_civil', 0) or 0) in [2, 3]:
+            es_mancom = True
+        elif getattr(client, 'tiene_deudor_solidario', False):
+            es_mancom = True
+            
         return {
             "type": "Cliente", 
-            "ifm": float(client.ingreso_mensual or 0) + float(getattr(client, 'ingreso_conyuge', 0))
+            "ifm": float(client.ingreso_mensual or 0) + float(getattr(client, 'ingreso_conyuge', 0)),
+            "es_mancomunado": es_mancom
         }
         
     raise HTTPException(status_code=404, detail="ID no encontrado en Base de Datos")

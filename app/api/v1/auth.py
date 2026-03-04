@@ -141,24 +141,66 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # Obtener el nombre del rol
     role_name = user.rol_rel.tipo_rol if user.rol_rel else "Cliente"
     
-    # Obtener datos extra si es cliente
-    ingreso_mensual = 0.0
-    es_propietario_vivienda = False
+    # Inicializar campos extra
+    extra_data = {
+        "dni": None,
+        "telefono": None,
+        "ingreso_mensual": 0.0,
+        "ingreso_conyuge": 0.0,
+        "codigo_tipo_ingreso": 1,
+        "meses_ahorro": 0,
+        "tiene_deudor_solidario": False,
+        "residencia": "Peruano",
+        "codigo_estado_civil": 1,
+        "nombre_conyuge": None,
+        "doc_conyuge": None,
+        "conyuge_propietario": False,
+        "es_propietario_vivienda": False,
+        "ha_recibido_apoyo": False,
+        "tiene_credito_activo": False,
+        "hijos_menores_propietarios": False,
+        "cantidad_creditos_fmv": 0
+    }
     
     if role_name == "Cliente":
-        client_profile = db.query(Client).filter(Client.codigo_cliente == user.codigo_usuario).first()
-        if client_profile:
-            ingreso_mensual = client_profile.ingreso_mensual
-            es_propietario_vivienda = client_profile.es_propietario_vivienda
+        cp = db.query(Client).filter(Client.codigo_cliente == user.codigo_usuario).first()
+        if cp:
+            extra_data.update({
+                "dni": cp.dni_cliente,
+                "telefono": cp.telefono_cliente,
+                "ingreso_mensual": float(cp.ingreso_mensual),
+                "ingreso_conyuge": float(cp.ingreso_conyuge),
+                "codigo_tipo_ingreso": cp.codigo_tipo_ingreso,
+                "meses_ahorro": cp.meses_ahorro,
+                "tiene_deudor_solidario": cp.tiene_deudor_solidario,
+                "residencia": cp.residencia,
+                "codigo_estado_civil": cp.codigo_estado_civil,
+                "nombre_conyuge": cp.nombre_conyuge,
+                "doc_conyuge": cp.doc_conyuge,
+                "conyuge_propietario": cp.conyuge_propietario,
+                "es_propietario_vivienda": cp.es_propietario_vivienda,
+                "ha_recibido_apoyo": cp.recibio_apoyo_estatal,
+                "tiene_credito_activo": cp.tiene_credito_fmv_activo,
+                "hijos_menores_propietarios": cp.hijos_menores_propietarios,
+                "cantidad_creditos_fmv": cp.cantidad_creditos_fmv
+            })
+    elif role_name == "Asesor":
+        ap = db.query(Advisor).filter(Advisor.codigo_asesor == user.codigo_usuario).first()
+        if ap:
+            extra_data["dni"] = ap.dni_asesor
+            extra_data["telefono"] = ap.telefono_asesor
+    elif role_name == "Administrador":
+        adp = db.query(Administrator).filter(Administrator.codigo_administrador == user.codigo_usuario).first()
+        if adp:
+            extra_data["dni"] = adp.dni_administrador
+            extra_data["telefono"] = adp.telefono_administrador
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={
-            "sub": user.email,
-            "role": role_name
-        }, 
+        data={"sub": user.email, "role": role_name}, 
         expires_delta=access_token_expires
     )
+    
     return {
         "access_token": access_token, 
         "token_type": "bearer",
@@ -166,6 +208,5 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "nombres": user.nombres,
         "apellidos": user.apellidos,
         "codigo_usuario": user.codigo_usuario,
-        "ingreso_mensual": ingreso_mensual,
-        "es_propietario_vivienda": es_propietario_vivienda
+        **extra_data
     }

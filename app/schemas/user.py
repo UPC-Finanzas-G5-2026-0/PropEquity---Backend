@@ -43,8 +43,23 @@ class Token(BaseModel):
     nombres: str
     apellidos: str
     codigo_usuario: int
+    dni: Optional[str] = None
+    telefono: Optional[str] = None
     ingreso_mensual: Optional[float] = None
+    ingreso_conyuge: Optional[float] = None
+    codigo_tipo_ingreso: Optional[int] = None
+    meses_ahorro: Optional[int] = None
+    tiene_deudor_solidario: Optional[bool] = None
+    residencia: Optional[str] = None
+    codigo_estado_civil: Optional[int] = None
+    nombre_conyuge: Optional[str] = None
+    doc_conyuge: Optional[str] = None
+    conyuge_propietario: Optional[bool] = None
     es_propietario_vivienda: Optional[bool] = None
+    ha_recibido_apoyo: Optional[bool] = None
+    tiene_credito_activo: Optional[bool] = None
+    hijos_menores_propietarios: Optional[bool] = None
+    cantidad_creditos_fmv: Optional[int] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None
