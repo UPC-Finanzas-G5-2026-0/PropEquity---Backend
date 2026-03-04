@@ -90,11 +90,28 @@ def seed_catalogs():
         # 8. Sembrar Parámetros de Bancos (IFI) - NUEVO
         if db.query(models.CreditoIFI).count() == 0:
             bancos = [
-                models.CreditoIFI(nombre_ifi="BCP", monto_min=10000, monto_max=1500000, plazo_min_anios=5, plazo_max_anios=25, tea_min=8.5, tea_max=15.0, seguro_individual=0.028, seguro_mancomunado=0.050),
-                models.CreditoIFI(nombre_ifi="BBVA", monto_min=10000, monto_max=1500000, plazo_min_anios=5, plazo_max_anios=25, tea_min=9.0, tea_max=16.0, seguro_individual=0.030, seguro_mancomunado=0.055),
-                models.CreditoIFI(nombre_ifi="Interbank", monto_min=10000, monto_max=1500000, plazo_min_anios=5, plazo_max_anios=25, tea_min=8.8, tea_max=15.5, seguro_individual=0.025, seguro_mancomunado=0.045),
-                models.CreditoIFI(nombre_ifi="Pichincha", monto_min=10000, monto_max=1500000, plazo_min_anios=5, plazo_max_anios=25, tea_min=9.5, tea_max=17.0, seguro_individual=0.035, seguro_mancomunado=0.060),
-                models.CreditoIFI(nombre_ifi="GNB", monto_min=10000, monto_max=1500000, plazo_min_anios=5, plazo_max_anios=25, tea_min=9.2, tea_max=16.5, seguro_individual=0.032, seguro_mancomunado=0.058)
+                # Banco Pichincha
+                models.CreditoIFI(nombre_ifi="Pichincha", monto_min=100, monto_max=100000, plazo_min_anios=5, plazo_max_anios=20, tea_min=15.00, tea_max=15.00, seguro_individual=0.047, seguro_mancomunado=0.080),
+                models.CreditoIFI(nombre_ifi="Pichincha", monto_min=100001, monto_max=200000, plazo_min_anios=5, plazo_max_anios=20, tea_min=14.00, tea_max=14.00, seguro_individual=0.047, seguro_mancomunado=0.080),
+                models.CreditoIFI(nombre_ifi="Pichincha", monto_min=200001, monto_max=1500000, plazo_min_anios=5, plazo_max_anios=20, tea_min=13.00, tea_max=13.00, seguro_individual=0.047, seguro_mancomunado=0.080),
+                
+                # Interbank
+                models.CreditoIFI(nombre_ifi="Interbank", monto_min=60000, monto_max=100000, plazo_min_anios=6, plazo_max_anios=25, tea_min=12.60, tea_max=12.60, seguro_individual=0.028, seguro_mancomunado=0.052),
+                models.CreditoIFI(nombre_ifi="Interbank", monto_min=100001, monto_max=200000, plazo_min_anios=6, plazo_max_anios=25, tea_min=12.30, tea_max=12.30, seguro_individual=0.028, seguro_mancomunado=0.052),
+                models.CreditoIFI(nombre_ifi="Interbank", monto_min=200001, monto_max=300000, plazo_min_anios=6, plazo_max_anios=25, tea_min=12.20, tea_max=12.20, seguro_individual=0.028, seguro_mancomunado=0.052),
+                models.CreditoIFI(nombre_ifi="Interbank", monto_min=300001, monto_max=1500000, plazo_min_anios=6, plazo_max_anios=25, tea_min=11.90, tea_max=11.90, seguro_individual=0.028, seguro_mancomunado=0.052),
+                
+                # BBVA
+                models.CreditoIFI(nombre_ifi="BBVA", monto_min=10000, monto_max=94999, plazo_min_anios=6, plazo_max_anios=12, tea_min=13.10, tea_max=13.10, seguro_individual=0.023, seguro_mancomunado=0.043),
+                models.CreditoIFI(nombre_ifi="BBVA", monto_min=95000, monto_max=450000, plazo_min_anios=6, plazo_max_anios=12, tea_min=12.90, tea_max=12.90, seguro_individual=0.023, seguro_mancomunado=0.043),
+                
+                # BCP
+                models.CreditoIFI(nombre_ifi="BCP", monto_min=34000, monto_max=90000, plazo_min_anios=10, plazo_max_anios=20, tea_min=13.99, tea_max=13.99, seguro_individual=0.039, seguro_mancomunado=0.070),
+                models.CreditoIFI(nombre_ifi="BCP", monto_min=90001, monto_max=240000, plazo_min_anios=10, plazo_max_anios=20, tea_min=13.99, tea_max=13.99, seguro_individual=0.039, seguro_mancomunado=0.070),
+                models.CreditoIFI(nombre_ifi="BCP", monto_min=240001, monto_max=364500, plazo_min_anios=10, plazo_max_anios=20, tea_min=13.99, tea_max=13.99, seguro_individual=0.039, seguro_mancomunado=0.070),
+                
+                # GNB
+                models.CreditoIFI(nombre_ifi="GNB", monto_min=30000, monto_max=1500000, plazo_min_anios=3, plazo_max_anios=25, tea_min=13.25, tea_max=13.25, seguro_individual=0.040, seguro_mancomunado=0.075)
             ]
             db.add_all(bancos)
             db.commit()
