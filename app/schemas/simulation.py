@@ -146,6 +146,9 @@ class SimulationSummaryResponse(BaseModel):
     total_intereses: Decimal
     total_pagado: Decimal
     total_seguro: Decimal
+    total_comisiones_periodicas: Decimal
+    total_portes_gastos_adm: Decimal
+
 
     class Config:
         from_attributes = True
@@ -164,8 +167,11 @@ class SimulationDetailResponse(BaseModel):
     amortizacion: Decimal
     seguro: Decimal
     seguro_desgravamen: Optional[Decimal] = None # Alias para el frontend
-    comisiones: Decimal
+    comision_periodica: Decimal
+    portes: Decimal
+    gastos_administracion: Decimal
     cuota_total: Decimal
+
     cuota: Optional[Decimal] = None # Alias para el frontend
     saldo_final: Decimal
     flujo_caja: Optional[Decimal] = None

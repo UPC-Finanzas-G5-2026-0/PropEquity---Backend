@@ -358,6 +358,9 @@ class SimulationResult(Base):
     total_intereses = Column(Numeric(12, 2), default=0.00)
     total_pagado = Column(Numeric(12, 2), default=0.00)
     total_seguro = Column(Numeric(12, 2), default=0.00)
+    total_comisiones_periodicas = Column(Numeric(12, 2), default=0.00)
+    total_portes_gastos_adm = Column(Numeric(12, 2), default=0.00)
+
 
     simulacion_rel = relationship("Simulation", back_populates="resumen")
 
@@ -371,10 +374,12 @@ class SimulationDetail(Base):
     cuota_total = Column(Numeric(12, 2))
     interes = Column(Numeric(12, 2))
     interes_capitalizado = Column(Numeric(12, 2), default=0.00)
-    amortizacion = Column(Numeric(12, 2))
     seguro = Column(Numeric(12, 2))
-    comisiones = Column(Numeric(12, 2), default=Decimal("0.00"))
+    comision_periodica = Column(Numeric(12, 2), default=Decimal("0.00"))
+    portes = Column(Numeric(12, 2), default=Decimal("0.00"))
+    gastos_administracion = Column(Numeric(12, 2), default=Decimal("0.00"))
     saldo_final = Column(Numeric(12, 2))
+
     flujo_caja = Column(Numeric(12, 2))
     fecha_vencimiento = Column(Date, nullable=True) 
 

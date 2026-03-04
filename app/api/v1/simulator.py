@@ -413,7 +413,9 @@ def run_simulation(
             numero_cuota=i,
             interes=d2(int_periodo),
             seguro=d2(seguro_pago),
-            comisiones=d2(gastos_periodicos),
+            comision_periodica=d2(payload.comision_periodica),
+            portes=d2(payload.portes),
+            gastos_administracion=d2(payload.gastos_administracion),
             amortizacion=d2(amort_periodo), 
             cuota_total=d2(cuota_t),
             saldo_final=d2(max(Decimal("0"), saldo)),
@@ -476,8 +478,10 @@ def run_simulation(
         "tir": float(Decimal(str(tir)) * 100),
         "tcea": float(tcea * 100),
         "total_intereses": float(total_int),
-        "total_pagado": float(sum(d.cuota_total for d in detalles_db)),
-        "total_seguro": float(total_seg)
+        "total_pagado": float(sum(d.cuota_total for d in detalles_db if d.numero_cuota > 0)),
+        "total_seguro": float(total_seg),
+        "total_comisiones_periodicas": float(payload.comision_periodica * n_total),
+        "total_portes_gastos_adm": float((payload.portes + payload.gastos_administracion) * n_total)
     }
 
     def _detalle_to_dict(d) -> dict:
@@ -565,7 +569,11 @@ def run_simulation(
             tasa_efectiva_anual=tea, tasa_efectiva_mensual=tem,
             factor_frances=factor, cuota_base=d2(cuota_base),
             ratio_cuota_ingreso=ratio, van=d2(van), tir=Decimal(str(tir)), tcea=Decimal(str(tcea * 100)),
-            total_intereses=d2(total_int), total_pagado=d2(sum(d.cuota_total for d in detalles_db)), total_seguro=d2(total_seg)
+            total_intereses=d2(total_int),
+            total_pagado=d2(sum(d.cuota_total for d in detalles_db if d.numero_cuota > 0)),
+            total_seguro=d2(total_seg),
+            total_comisiones_periodicas=d2(payload.comision_periodica * n_total),
+            total_portes_gastos_adm=d2((payload.portes + payload.gastos_administracion) * n_total)
         )
         db.add(resumen_obj)
         for d in detalles_db: d.codigo_simulacion = new_sim.codigo_simulacion; db.add(d)
