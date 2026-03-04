@@ -347,6 +347,7 @@ def run_simulation(
     detalles_db = []
     saldo = monto_financiar
     
+    flujo_0 = monto_financiar - Decimal(str(payload.gastos_iniciales))
     detalles_db.append(SimulationDetail(
         numero_cuota=0,
         saldo_inicio=d2(monto_financiar),
@@ -356,14 +357,14 @@ def run_simulation(
         amortizacion=d2(0),
         cuota_total=d2(0),
         saldo_final=d2(monto_financiar),
-        flujo_caja=d2(0),
+        flujo_caja=d2(flujo_0),
         fecha_vencimiento=fecha_base
     ))
     
     detalles_db[0].fecha_pago = fecha_base
     detalles_db[0].saldo_inicial = d2(monto_financiar)
     detalles_db[0].interes_capitalizado = d2(0)
-    detalles_db[0].flujo_caja = d2(0)
+    detalles_db[0].flujo_caja = d2(flujo_0)
     detalles_db[0].tea = None 
     detalles_db[0].tem = None 
     detalles_db[0].seguro_desgravamen = d2(0)
@@ -503,6 +504,7 @@ def run_simulation(
             "cuota":               float(d.cuota_total) if d.cuota_total is not None else 0.0,
             "saldo_final":         float(d.saldo_final) if d.saldo_final is not None else 0.0,
             "flujo_caja":          float(getattr(d, "flujo_caja", 0) or 0),
+            "flujo":               float(getattr(d, "flujo_caja", 0) or 0),
         }
 
     try:

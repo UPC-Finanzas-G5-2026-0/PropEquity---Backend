@@ -173,6 +173,7 @@ class SimulationDetailResponse(BaseModel):
     cuota_total: Optional[Decimal] = Decimal("0.00")
 
     cuota: Optional[Decimal] = None # Alias para el frontend
+    flujo: Optional[Decimal] = None # Alias para la columna de flujo en frontend
     saldo_final: Optional[Decimal] = Decimal("0.00")
     flujo_caja: Optional[Decimal] = None
 
@@ -181,6 +182,8 @@ class SimulationDetailResponse(BaseModel):
 
     @model_validator(mode="after")
     def populate_aliases(self) -> "SimulationDetailResponse":
+        if self.flujo is None:
+            self.flujo = self.flujo_caja
         if self.cuota is None:
             self.cuota = self.cuota_total
         if self.fecha_pago is None:
