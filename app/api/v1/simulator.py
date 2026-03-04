@@ -304,10 +304,11 @@ def run_simulation(
 
         payload.tipo_tasa = "Efectiva"
         payload.capitalizacion = "Mensual" 
-
+        
+        # Asignamos la TEA oficial del banco automáticamente
+        payload.tasa_anual = float(ifi_row.tea)
+        
         tasa_ingresada = Decimal(str(payload.tasa_anual))
-        if not (ifi_row.tea_min <= tasa_ingresada <= ifi_row.tea_max):
-            raise HTTPException(status_code=400, detail=f"La tasa está fuera del rango TEA de {payload.ifi_seleccionada}.")
         
         plazo_anios = payload.plazo_meses / 12
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
@@ -483,7 +484,8 @@ def run_simulation(
         "total_pagado": float(sum(d.cuota_total for d in detalles_db if d.numero_cuota > 0)),
         "total_seguro": float(total_seg),
         "total_comisiones_periodicas": float(payload.comision_periodica * n_total),
-        "total_portes_gastos_adm": float((payload.portes + payload.gastos_administracion) * n_total)
+        "total_portes_gastos_adm": float((payload.portes + payload.gastos_administracion) * n_total),
+        "ifi_seleccionada": payload.ifi_seleccionada
     }
 
     def _detalle_to_dict(d) -> dict:
