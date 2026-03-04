@@ -108,7 +108,8 @@ def get_ifi_rules(db: Session = Depends(get_db), current_user: User = Depends(ge
             rules[i.nombre_ifi] = {
                 "rates": [],
                 "seguro_individual": float(i.seguro_individual),
-                "seguro_mancomunado": float(i.seguro_mancomunado)
+                "seguro_mancomunado": float(i.seguro_mancomunado),
+                "seguro_sugerido": float(i.seguro_mancomunado if (current_user and current_user.cliente and (int(getattr(current_user.cliente, 'codigo_estado_civil', 0) or 0) in [2, 3] or getattr(current_user.cliente, 'tiene_deudor_solidario', False))) else i.seguro_individual)
             }
         # Agregar el rango de tasa
         rules[i.nombre_ifi]["rates"].append({
@@ -125,6 +126,7 @@ def get_ifi_rules(db: Session = Depends(get_db), current_user: User = Depends(ge
 @router.get("/ifis-disponibles")
 def get_ifis_disponibles(
     monto: float,
+    tiene_deudor_solidario: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -138,6 +140,21 @@ def get_ifis_disponibles(
         (CreditoIFI.monto_max >= monto_dec) | (CreditoIFI.monto_max == None)
     ).all()
 
+    # Determinación del seguro (Individual vs Mancomunado)
+    # Se aplica mancomunado si:
+    # 1. El usuario lo marca en el formulario (parámetro de consulta)
+    # 2. El usuario logueado es Casado/Conviviente en su perfil
+    # 3. El usuario logueado tiene marcado deudor solidario en su perfil
+    
+    es_mancomunado = tiene_deudor_solidario
+    
+    if not es_mancomunado and current_user and current_user.cliente:
+        client = current_user.cliente
+        if int(getattr(client, 'codigo_estado_civil', 0) or 0) in [2, 3]:
+            es_mancomunado = True
+        elif getattr(client, 'tiene_deudor_solidario', False):
+            es_mancomunado = True
+
     return [
         {
             "nombre_ifi": r.nombre_ifi,
@@ -146,6 +163,7 @@ def get_ifis_disponibles(
             "tea": float(r.tea),
             "seguro_individual": float(r.seguro_individual),
             "seguro_mancomunado": float(r.seguro_mancomunado),
+            "seguro": float(r.seguro_mancomunado if es_mancomunado else r.seguro_individual)
         }
         for r in results
     ]
@@ -348,11 +366,18 @@ def run_simulation(
         if payload.tiene_deudor_solidario:
             tiene_mancomunado = True
             
-        # 2. Si no marcó deudor solidario, revisamos su perfil en DB (Estado Civil o Marcación fija)
-        elif entity:
+        # 2. Revisamos perfil vinculado (Cliente/Prospecto)
+        if not tiene_mancomunado and entity:
             if getattr(entity, 'tiene_deudor_solidario', False):
                 tiene_mancomunado = True
-            elif int(getattr(entity, 'codigo_estado_civil', 0) or 0) in [2, 3]: # 2=Casado, 3=Conviviente
+            elif int(getattr(entity, 'codigo_estado_civil', 0) or 0) in [2, 3]:
+                tiene_mancomunado = True
+
+        # 3. Respaldo: Perfil del usuario autenticado (por si no se envió ID de entidad)
+        if not tiene_mancomunado and current_user and current_user.cliente:
+            if int(getattr(current_user.cliente, 'codigo_estado_civil', 0) or 0) in [2, 3]:
+                tiene_mancomunado = True
+            elif getattr(current_user.cliente, 'tiene_deudor_solidario', False):
                 tiene_mancomunado = True
         
         payload.seguro_desgravamen = float(ifi_row.seguro_mancomunado if tiene_mancomunado else ifi_row.seguro_individual)
