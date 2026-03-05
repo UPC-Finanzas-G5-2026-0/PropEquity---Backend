@@ -74,10 +74,8 @@ def get_bbp_ranges(db: Session = Depends(get_db), current_user: User = Depends(g
         for b in bonos
     ]
 
-# 🚨 NUEVO ENDPOINT: Búsqueda segura del IFM para el Frontend
 @router.get("/check-income/{person_id}")
 def check_income(person_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # Busca primero como prospecto
     prospect = db.query(Prospect).filter(Prospect.codigo_prospecto == person_id).first()
     if prospect:
         es_mancom = False
@@ -92,7 +90,6 @@ def check_income(person_id: int, db: Session = Depends(get_db), current_user: Us
             "es_mancomunado": es_mancom
         }
     
-    # Si no, busca como cliente
     client = db.query(Client).filter(Client.codigo_cliente == person_id).first()
     if client:
         es_mancom = False
@@ -111,10 +108,6 @@ def check_income(person_id: int, db: Session = Depends(get_db), current_user: Us
     
 @router.get("/ifi-rules")
 def get_ifi_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """
-    Devuelve las reglas de todas las IFIs (tasas por monto, seguros de desgravamen).
-    Usado por el frontend para poblar el dropdown y autocompletar tasas.
-    """
     ifis = db.query(CreditoIFI).all()
     rules = {}
     for i in ifis:
@@ -125,13 +118,11 @@ def get_ifi_rules(db: Session = Depends(get_db), current_user: User = Depends(ge
                 "seguro_mancomunado": float(i.seguro_mancomunado),
                 "seguro_sugerido": float(i.seguro_mancomunado if (current_user and current_user.cliente and (int(getattr(current_user.cliente, 'codigo_estado_civil', 0) or 0) in [2, 3] or getattr(current_user.cliente, 'tiene_deudor_solidario', False))) else i.seguro_individual)
             }
-        # Agregar el rango de tasa
         rules[i.nombre_ifi]["rates"].append({
             "max": float(i.monto_max) if i.monto_max else 999999999,
             "tea": float(i.tea)
         })
     
-    # Ordenar los rangos por monto máximo para que el frontend pueda buscar correctamente
     for bank in rules:
         rules[bank]["rates"].sort(key=lambda x: x["max"])
         
@@ -144,21 +135,12 @@ def get_ifis_disponibles(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Devuelve las IFIs disponibles para un monto de financiamiento dado.
-    """
     from decimal import Decimal
     monto_dec = Decimal(str(monto))
     results = db.query(CreditoIFI).filter(
         CreditoIFI.monto_min <= monto_dec,
         (CreditoIFI.monto_max >= monto_dec) | (CreditoIFI.monto_max == None)
     ).all()
-
-    # Determinación del seguro (Individual vs Mancomunado)
-    # Se aplica mancomunado si:
-    # 1. El usuario lo marca en el formulario (parámetro de consulta)
-    # 2. El usuario logueado es Casado/Conviviente en su perfil
-    # 3. El usuario logueado tiene marcado deudor solidario en su perfil
     
     es_mancomunado = tiene_deudor_solidario
     
@@ -190,7 +172,6 @@ def run_simulation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # 1. Validar unidad y obtener modalidad
     unit = db.query(Unit).filter(Unit.codigo_unidad == payload.codigo_unidad).first()
     if not unit:
         raise HTTPException(status_code=404, detail="Unidad no encontrada")
@@ -202,7 +183,6 @@ def run_simulation(
 
     role = current_user.rol_rel.tipo_rol
     
-    # 2. Asignar identificadores y buscar entidad para IFM
     entity = None
     ifm = Decimal("0")
 
@@ -265,10 +245,8 @@ def run_simulation(
     if payload.tipo_gracia == "Total" and payload.meses_gracia > 6:
         raise HTTPException(status_code=422, detail="El periodo de gracia total no puede superar los 6 meses.")
 
-    # 👇 ESTA ES LA LÍNEA MÁGICA QUE FALTABA (YA AGREGADA Y CORREGIDA) 👇
     fecha_base = payload.fecha_inicio_prestamo if payload.fecha_inicio_prestamo else date.today()
 
-    # 3. Conversión de Moneda y Cálculo de BBP
     pv = Decimal(str(unit.precio_venta))
     tipo_cambio = Decimal(str(payload.tipo_cambio))
 
@@ -323,7 +301,6 @@ def run_simulation(
         if hasattr(entity, 'tiene_credito_fmv_activo') and entity.tiene_credito_fmv_activo:
             raise HTTPException(status_code=400, detail="El solicitante tiene un Crédito MiVivienda activo. Bloqueado.")
 
-    # 4. Cuota Inicial y Financiamiento
     cuota_inicial = Decimal(str(payload.cuota_inicial))
     porcentaje_inicial = (cuota_inicial / pv) * 100
     min_porcentaje = Decimal("7.5") if modalidad in ["Construccion", "Mejoramiento"] else Decimal("10.0")
@@ -331,7 +308,6 @@ def run_simulation(
     if porcentaje_inicial < min_porcentaje:
         raise HTTPException(status_code=400, detail=f"La cuota inicial es insuficiente. Se requiere un mínimo del {float(min_porcentaje)}%.")
 
-    # 5. Cálculo del Préstamo
     precio_neto = pv - bono_total
     monto_financiar = (precio_neto - cuota_inicial) + Decimal(str(payload.gastos_iniciales))
 
@@ -364,31 +340,21 @@ def run_simulation(
         payload.codigo_credito = ifi_row.codigo_credito
         payload.tipo_tasa = "Efectiva"
         payload.capitalizacion = "Mensual" 
-        
-        # Asignamos la TEA oficial del banco automáticamente
         payload.tasa_anual = float(ifi_row.tea)
         
         tasa_ingresada = Decimal(str(payload.tasa_anual))
-        
         plazo_anios = payload.plazo_meses / 12
         if not (ifi_row.plazo_min_anios <= plazo_anios <= ifi_row.plazo_max_anios):
             raise HTTPException(status_code=400, detail=f"El plazo está fuera del rango de {payload.ifi_seleccionada}.")
         
-        # Determinación del seguro (Individual vs Mancomunado)
         tiene_mancomunado = False
-        
-        # 1. Prioridad: Lo que el usuario marca en el formulario de simulación (transitorio)
         if payload.tiene_deudor_solidario:
             tiene_mancomunado = True
-            
-        # 2. Revisamos perfil vinculado (Cliente/Prospecto)
         if not tiene_mancomunado and entity:
             if getattr(entity, 'tiene_deudor_solidario', False):
                 tiene_mancomunado = True
             elif int(getattr(entity, 'codigo_estado_civil', 0) or 0) in [2, 3]:
                 tiene_mancomunado = True
-
-        # 3. Respaldo: Perfil del usuario autenticado (por si no se envió ID de entidad)
         if not tiene_mancomunado and current_user and current_user.cliente:
             if int(getattr(current_user.cliente, 'codigo_estado_civil', 0) or 0) in [2, 3]:
                 tiene_mancomunado = True
@@ -463,14 +429,15 @@ def run_simulation(
                 interes_cap = int_periodo
                 amort_periodo = Decimal("0")
                 seguro_pago = seguro_periodo
-                cuota_base_pago = Decimal("0")
-                cuota_t = cuota_base_pago + seguro_pago + gastos_periodicos
+                # Ajuste: En gracia, la cuota base debe contener el seguro para que la fórmula Excel cuadre
+                cuota_base_pago = seguro_pago  
+                cuota_t = cuota_base_pago + gastos_periodicos
                 saldo = saldo_anterior + interes_cap
             else: 
                 amort_periodo = Decimal("0")
                 seguro_pago = seguro_periodo
-                cuota_base_pago = int_periodo
-                cuota_t = cuota_base_pago + seguro_pago + gastos_periodicos
+                cuota_base_pago = int_periodo + seguro_pago
+                cuota_t = cuota_base_pago + gastos_periodicos
                 saldo = saldo_anterior
                 
             if i == m_gracia: 
@@ -544,6 +511,13 @@ def run_simulation(
         van = npf.npv(float(tasa_descuento_mensual), flujos_caja)
     except: tir, tcea, van = 0, 0, 0
 
+    # === CÁLCULO DE TOTAL DE INTERESES (FÓRMULA EXCEL DE SALVADOR) ===
+    # Excel: = SUMA(Cuotas inc Seg) - SUMA(Amortizaciones) - SUMA(Seguros)
+    sum_cuotas = sum((d.cuota_total for d in detalles_db if d.numero_cuota > 0), Decimal("0"))
+    sum_amort = sum((d.amortizacion for d in detalles_db if d.numero_cuota > 0), Decimal("0"))
+    sum_seguros = sum((d.seguro for d in detalles_db if d.numero_cuota > 0), Decimal("0"))
+    total_int_excel = sum_cuotas - sum_amort - sum_seguros
+
     resumen_dict = {
         "rango_bbp": bono_info["rango"],
         "bono_bbp_base": float(bono_info["base"]),
@@ -560,7 +534,7 @@ def run_simulation(
         "van": float(van),
         "tir": float(Decimal(str(tir)) * 100),
         "tcea": float(tcea * 100),
-        "total_intereses": float(total_int),
+        "total_intereses": float(total_int_excel),
         "total_pagado": float(sum(d.cuota_total for d in detalles_db if d.numero_cuota > 0)),
         "total_seguro": float(total_seg),
         "total_comisiones_periodicas": float(payload.comision_periodica * n_total),
@@ -671,7 +645,7 @@ def run_simulation(
             ratio_cuota_ingreso=ratio, van=d2(van), tir=Decimal(str(tir)) * 100, tcea=Decimal(str(tcea * 100)),
             tasa_descuento=TASA_DESCUENTO_ANUAL * 100,
             tasa_descuento_mensual=Decimal(str(tasa_descuento_mensual)) * 100,
-            total_intereses=d2(total_int),
+            total_intereses=d2(total_int_excel),
             total_pagado=d2(sum(d.cuota_total for d in detalles_db if d.numero_cuota > 0)),
             total_seguro=d2(total_seg),
             total_comisiones_periodicas=d2(payload.comision_periodica * n_total),
